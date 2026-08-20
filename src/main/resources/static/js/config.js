@@ -1,3 +1,4 @@
+// src/main/resources/static/js/config.js
 /* ============================================================
    js/config.js - 配置和常量
    ============================================================ */
@@ -8,7 +9,6 @@ const CATEGORIES = [
     { code: 'WESTERN_FANTASY', id: 1141, name: '西方奇幻' },
     { code: 'EASTERN_XIANXIA', id: 1140, name: '东方仙侠' },
     { code: 'SCI_FI', id: 8, name: '科幻末世' },
-    { code: 'URBAN_XIANXIA', id: 124, name: '都市修真' },
     { code: 'URBAN_HIGH_WU', id: 1014, name: '都市高武' },
     { code: 'HISTORY_ANCIENT', id: 273, name: '历史古代' },
     { code: 'URBAN_FARMING', id: 263, name: '都市种田' },

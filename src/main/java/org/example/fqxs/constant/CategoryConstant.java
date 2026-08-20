@@ -9,10 +9,10 @@ import lombok.Getter;
 public enum CategoryConstant {
 
     // ==================== 男频阅读榜 ====================
-    WESTERN_FANTASY(1141, "西方奇幻", 1, 2),   // ← 关键：ID为1141
+    WESTERN_FANTASY(1141, "西方奇幻", 1, 2),
     EASTERN_XIANXIA(1140, "东方仙侠", 1, 2),
     SCI_FI(8, "科幻末世", 1, 2),
-    URBAN_XIANXIA(124, "都市修真", 1, 2),
+    // URBAN_XIANXIA(124, "都市修真", 1, 2),  // ★ 已删除
     URBAN_HIGH_WU(1014, "都市高武", 1, 2),
     HISTORY_ANCIENT(273, "历史古代", 1, 2),
     URBAN_FARMING(263, "都市种田", 1, 2),
