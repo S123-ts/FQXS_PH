@@ -1,0 +1,48 @@
+/* ============================================================
+   css/base.css - 基础重置和通用样式
+   ============================================================ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+    background: #f5f6fa;
+    color: #333;
+    min-height: 100vh;
+}
+
+/* ---------- 番茄官网自定义字体 ---------- */
+@font-face {
+    font-family: 'DNMrHsV173Pd4pgy';
+    font-display: block;
+    src: url('https://lf6-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd.woff2') format('woff2'),
+    url('https://lf3-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd.woff2') format('woff2'),
+    url('https://lf6-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd.woff') format('woff'),
+    url('https://lf3-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd.woff') format('woff');
+    font-weight: 400;
+}
+@font-face {
+    font-family: 'DNMrHsV173Pd4pgy';
+    font-display: block;
+    src: url('https://lf6-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-500.woff2') format('woff2'),
+    url('https://lf3-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-500.woff2') format('woff2'),
+    url('https://lf6-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-500.woff') format('woff'),
+    url('https://lf3-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-500.woff') format('woff');
+    font-weight: 500;
+}
+@font-face {
+    font-family: 'DNMrHsV173Pd4pgy';
+    font-display: block;
+    src: url('https://lf6-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-700.woff2') format('woff2'),
+    url('https://lf3-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-700.woff2') format('woff2'),
+    url('https://lf6-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-700.woff') format('woff'),
+    url('https://lf3-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-700.woff') format('woff');
+    font-weight: 700;
+}
+.font-DNMrHsV173Pd4pgy {
+    font-family: 'DNMrHsV173Pd4pgy', -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+}

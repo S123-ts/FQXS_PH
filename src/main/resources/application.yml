@@ -1,0 +1,64 @@
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+      force-request: true
+      force-response: true
+spring:
+  datasource:
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    url: jdbc:sqlserver://localhost:1433;databaseName=FQXS;encrypt=true;trustServerCertificate=true
+    username: sa
+    password: 123123  # 改成你的 SA 密码
+  jpa:
+    database: sql_server
+    show-sql: true
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.SQLServer2016Dialect
+        format_sql: true
+
+  application:
+    name: fanqie-novel-crawler
+  http:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+    # ★ 关键：强制Jackson使用UTF-8
+    generator:
+      write_numbers_as_strings: false
+    parser:
+      allow_unquoted_control_chars: true
+
+crawler:
+  fanqie:
+    base-url: https://fanqienovel.com
+    rank-api: /api/rank/category/list
+    timeout: 15000
+    max-retries: 3
+    default:
+      rank-type: 1
+      category-id: 2
+      subcategory-id: 1141
+      page: 1
+      size: 30
+      app-id: 2503
+      rank-list-type: 3
+      gender: 1
+      rank-mold: 2
+      rank-version: ""
+
+logging:
+  level:
+    org.example.fqxs: DEBUG
+    okhttp3: INFO
