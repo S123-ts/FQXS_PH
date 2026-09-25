@@ -1,0 +1,88 @@
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+spring:
+  datasource:
+    driver-class-name: org.h2.Driver
+    # 存储是项目目录下的文件库，不需要任何数据库服务
+    url: ${DB_URL:jdbc:h2:file:./data/fqxs;DB_CLOSE_ON_EXIT=FALSE}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+    hikari:
+      # 池 10 个连接、5 秒超时：此前“5 连接 + 2 秒超时”是数据库稍慢就 ConnectionTimeout 的主因
+      connection-timeout: 5000
+      initialization-fail-timeout: 0
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 60000
+      max-lifetime: 600000
+      pool-name: fqxs-pool
+
+  jpa:
+    database: h2
+    # OSIV 会在响应渲染期间继续占用连接，配合小连接池容易拖垮并发
+    open-in-view: false
+    show-sql: false
+    hibernate:
+      # 表结构由 db/schema-h2.sql 维护，不由应用改库
+      ddl-auto: none
+    properties:
+      hibernate:
+        temp.use_jdbc_metadata_defaults: false
+        dialect: org.hibernate.dialect.H2Dialect
+
+  # 建表脚本不走 spring.sql.init：它的 continue-on-error 只吞逐条语句错误，
+  # 连接打不开时（H2 文件被锁等）依然在 context 初始化期炸掉应用。
+  # 改由 bootstrap/SchemaInitializer 容错执行（HANDOVER §3：数据库不可用照样启动，读接口 503）。
+
+  jackson:
+    # 时刻格式不在这里配：date-format 对 LocalDateTime 无效，实体字段用 @JsonFormat 标注
+    default-property-inclusion: non_null
+
+crawler:
+  fanqie:
+    base-url: https://fanqienovel.com
+    rank-api: /api/rank/category/list
+    timeout: 15000
+    # 由 FanqieApiClient 真实执行：5xx / 429 / IO 异常时退避重试
+    max-retries: 3
+    default:
+      # 排查兜底默认值；运行时榜单寻址以 H2 app_config 的 rank_type（rankMold 2=阅读榜 1=新书榜）
+      # 与分类目录 CategoryCatalog 的 (gender, subcategoryId) 为准
+      # gender: 1=男频 0=女频；gender/rankMold/category_id 三者共同决定上游返回哪个榜
+      subcategory-id: 1141
+      page: 1
+      size: 30
+      app-id: 2503
+      rank-list-type: 3
+      gender: 1
+      rank-mold: 2
+      rank-version: ""
+
+app:
+  # 管理类接口（DELETE /api/db/**）的访问令牌；留空表示这些接口一律 403
+  admin-token: ${APP_ADMIN_TOKEN:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      # health 细节会带数据库连接状态，对外只给 UP/DOWN
+      show-details: never
+
+logging:
+  charset:
+    console: UTF-8
+    file: UTF-8
+  level:
+    org.example.fqxs: DEBUG
+    okhttp3: INFO
+    com.zaxxer.hikari: WARN

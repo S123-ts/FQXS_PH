@@ -1,0 +1,156 @@
+/* ============================================================
+   css/theme.css - 响应式布局 + 动效偏好
+   桌面优先，向下适配到手机。
+   ============================================================ */
+
+/* ---------- 平板 / 小屏桌面 ---------- */
+@media (max-width: 768px) {
+    .container {
+        padding: var(--sp-3) var(--sp-3) 32px;
+    }
+
+    /* 分类导航保持横向滚动，收窄内边距 */
+    .category-nav {
+        padding: 8px 12px;
+    }
+    .nav-btn {
+        padding: 5px 12px;
+        font-size: var(--fs-xs);
+    }
+
+    /* 统计栏纵向堆叠 */
+    .stats {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--sp-2);
+    }
+    .stats .info {
+        text-align: center;
+    }
+    .stats .controls {
+        justify-content: center;
+    }
+
+    /* 筛选栏换行：多选下拉独占一行 */
+    .filter-bar {
+        gap: var(--sp-2);
+        padding: 10px var(--sp-3);
+    }
+    .filter-dropdown-group {
+        flex: 1 1 100%;
+    }
+    .dropdown-toggle {
+        width: 100%;
+    }
+    .dropdown-menu {
+        min-width: 160px;
+        max-height: 220px;
+    }
+
+    /* 卡片收紧、封面缩小 */
+    .book-item {
+        padding: var(--sp-3) 14px;
+        gap: 10px;
+    }
+    .book-item .rank {
+        font-size: 20px;
+        min-width: 26px;
+    }
+    .book-item .cover {
+        width: 48px;
+        height: 66px;
+    }
+    .book-item .cover .cover-ph {
+        font-size: 20px;
+    }
+    .book-item .title {
+        font-size: 15px;
+    }
+    .book-item .info-row {
+        gap: 6px;
+        font-size: var(--fs-xs);
+    }
+    .book-item .desc {
+        font-size: var(--fs-xs);
+        -webkit-line-clamp: 3;
+    }
+    .book-item .meta {
+        font-size: 11px;
+    }
+
+    /* toast 顶通栏 */
+    .toast-host {
+        top: var(--sp-3);
+        left: var(--sp-4);
+        right: var(--sp-4);
+        align-items: stretch;
+        max-width: none;
+    }
+    .toast {
+        min-width: 0;
+    }
+
+    /* 设置面板贴底弹出，拇指更好够到 */
+    .modal-mask {
+        padding: var(--sp-2);
+        align-items: flex-end;
+    }
+    .modal {
+        max-height: 86vh;
+    }
+}
+
+/* ---------- 手机 ---------- */
+@media (max-width: 480px) {
+    .stats .controls {
+        gap: 6px;
+    }
+    .select,
+    .input {
+        padding: 5px 8px;
+    }
+    .book-item .cover {
+        width: 42px;
+        height: 58px;
+    }
+    .book-item .rank {
+        min-width: 22px;
+        font-size: 18px;
+    }
+    .book-item .info-row .chip {
+        font-size: 11px;
+        padding: 1px 7px;
+    }
+    .filter-bar {
+        gap: 6px;
+    }
+    /* 新控件在极窄屏收紧，控制栏能一行放下更多操作 */
+    .ctl-label {
+        font-size: var(--fs-xs);
+    }
+    .rank-type-option .rank-type-pill {
+        padding: 3px 9px;
+    }
+    .config-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .modal-header,
+    .modal-hint,
+    .modal-body,
+    .modal-footer {
+        padding-left: var(--sp-3);
+        padding-right: var(--sp-3);
+    }
+}
+
+/* ---------- 尊重减少动效偏好：关掉装饰动画 ---------- */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

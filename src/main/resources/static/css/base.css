@@ -1,0 +1,153 @@
+/* ============================================================
+   css/base.css - 重置 + 设计令牌 + 全局基础 + 反混淆字体
+   ============================================================ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* JS 一律用 hidden 属性切换显隐。display:flex 这类规则会盖过浏览器
+   默认的 [hidden] 样式（如 .filter-bar），必须强制兜底，勿删 */
+[hidden] {
+    display: none !important;
+}
+
+/* ---------- 设计令牌：浅色数据看板 ---------- */
+:root {
+    /* 色板 */
+    --bg: #f4f6f9;
+    --surface: #ffffff;
+    --surface-2: #f1f3f7;
+    --surface-3: #e7ebf1;
+    --border: #e4e8ef;
+    --border-strong: #ccd3de;
+    --text-1: #212733;
+    --text-2: #4c5666;
+    --text-3: #8a93a5;
+    --accent: #ff3d00;        /* 番茄红，主操作 */
+    --accent-hover: #e53600;
+    --accent-soft: #fff0ea;   /* 主色淡底，用于悬停/色块 */
+    --info: #2563eb;
+    --success: #1a7f37;
+    --success-soft: #e8f5ec;
+    --danger: #d93025;
+    --warn: #9a6700;
+    --warn-soft: #fff8e6;
+    --warn-border: #f0e2b8;
+    --gold: #eda200;          /* 名次徽章 金/银/铜 */
+    --silver: #97a1b0;
+    --bronze: #c47f3e;
+
+    /* 字号阶 */
+    --fs-xs: 12px;
+    --fs-sm: 13px;
+    --fs-md: 14px;
+    --fs-lg: 16px;
+    --fs-xl: 18px;
+
+    /* 间距 */
+    --sp-1: 4px;
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 20px;
+    --sp-6: 24px;
+
+    /* 圆角 */
+    --r-sm: 6px;
+    --r-md: 10px;
+    --r-lg: 12px;
+    --r-full: 999px;
+
+    /* 阴影 */
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+    --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08);
+    --shadow-lg: 0 8px 24px rgba(16, 24, 40, 0.14);
+    --shadow-accent: 0 2px 10px rgba(255, 61, 0, 0.30);
+
+    /* 层级：导航 < 下拉浮层 < 模态 < toast */
+    --z-nav: 100;
+    --z-dropdown: 300;
+    --z-modal: 500;
+    --z-toast: 1000;
+}
+
+body {
+    font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+    background: var(--bg);
+    color: var(--text-1);
+    min-height: 100vh;
+    font-size: var(--fs-md);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* 表单控件继承正文字体，避免浏览器默认外观突兀 */
+button,
+input,
+select {
+    font: inherit;
+    color: inherit;
+}
+
+img {
+    display: block;
+    max-width: 100%;
+}
+
+/* 键盘可达性：统一焦点轮廓（输入类控件另有描边+光圈样式） */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+::selection {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+}
+
+/* 复选框用主题色融入看板（筛选/多选下拉共用） */
+input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+/* ---------- 番茄官网反混淆字体（不可删） ----------
+   被爬站点把书名/作者等字段用自定义字形编码，浏览器缺这个字体时
+   对应文本会显示成 □。来源是被爬站点的 CDN，属于 CSP 唯一的
+   字体外链例外；font-display:block 避免加载间隙先渲染出 □。 */
+@font-face {
+    font-family: 'DNMrHsV173Pd4pgy';
+    font-display: block;
+    src: url('https://lf6-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd.woff2') format('woff2'),
+    url('https://lf3-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd.woff2') format('woff2'),
+    url('https://lf6-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd.woff') format('woff'),
+    url('https://lf3-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd.woff') format('woff');
+    font-weight: 400;
+}
+@font-face {
+    font-family: 'DNMrHsV173Pd4pgy';
+    font-display: block;
+    src: url('https://lf6-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-500.woff2') format('woff2'),
+    url('https://lf3-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-500.woff2') format('woff2'),
+    url('https://lf6-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-500.woff') format('woff'),
+    url('https://lf3-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-500.woff') format('woff');
+    font-weight: 500;
+}
+@font-face {
+    font-family: 'DNMrHsV173Pd4pgy';
+    font-display: block;
+    src: url('https://lf6-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-700.woff2') format('woff2'),
+    url('https://lf3-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-700.woff2') format('woff2'),
+    url('https://lf6-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-700.woff') format('woff'),
+    url('https://lf3-awef.bytetos.com/obj/awesome-font/c/dc027189e0ba4cd-700.woff') format('woff');
+    font-weight: 700;
+}
+.font-DNMrHsV173Pd4pgy {
+    font-family: 'DNMrHsV173Pd4pgy', -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+}

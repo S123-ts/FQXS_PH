@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>番茄小说排行榜</title>
+    <link rel="stylesheet" href="/css/base.css">
+    <link rel="stylesheet" href="/css/components.css">
+    <link rel="stylesheet" href="/css/theme.css">
+</head>
+<body>
+
+<!-- ===== 分类导航（按钮由 JS 填充进 #navInner：全部 + 男频组 + 女频组） ===== -->
+<nav class="category-nav" id="categoryNav" aria-label="分类导航">
+    <div class="nav-inner" id="navInner"></div>
+</nav>
+
+<!-- ===== 主内容 ===== -->
+<div class="container">
+    <!-- 统计 + 控制栏 -->
+    <section class="stats" id="statsBar">
+        <div class="info">
+            共 <strong id="totalCount">0</strong> 本小说 ·
+            当前分类：<span id="currentCategory">全部</span> ·
+            当前榜单：<span id="currentRankType">—</span>
+        </div>
+        <div class="controls">
+            <span class="ctl-label" id="rankTypeLabel">榜单：</span>
+            <!-- 榜单类型分段单选，选项由 JS 按 meta.rankTypes 填充 -->
+            <div class="rank-type" id="rankTypeGroup" role="radiogroup" aria-labelledby="rankTypeLabel"></div>
+            <label for="pageSizeSelect">每页显示：</label>
+            <select id="pageSizeSelect" class="select">
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="30" selected>30</option>
+                <option value="custom">自定义</option>
+            </select>
+            <!-- 选中「自定义」时 JS 移除 hidden 显示此项 -->
+            <input type="number" id="customPageSize" class="input" min="1" value="50" hidden
+                   aria-label="自定义每页数量">
+            <button type="button" class="btn btn-primary" id="refreshBtn" data-action="refresh">🔄 刷新</button>
+            <button type="button" class="btn btn-tonal" id="fetchAllBtn" data-action="fetch-all">📥 一键获取全部</button>
+            <button type="button" class="btn btn-tonal" id="configBtn" data-action="open-config">⚙ 展示分类</button>
+            <!-- 源站榜单入口，随时对照数据真身 -->
+            <a class="btn btn-ghost" href="https://fanqienovel.com/rank" target="_blank" rel="noopener noreferrer">番茄排行榜 ↗</a>
+        </div>
+    </section>
+
+    <!-- 筛选栏（仅「全部」分类下显示，JS 切 hidden 属性，默认显示） -->
+    <section class="filter-bar" id="filterBar">
+        <div class="filter-group filter-dropdown-group">
+            <label class="filter-label">分类：</label>
+            <div class="dropdown-multi" id="dropdownMulti">
+                <button type="button" class="dropdown-toggle" aria-haspopup="true"
+                        aria-expanded="false" aria-controls="dropdownMenu">
+                    <span id="dropdownLabel">全部</span>
+                    <span class="dropdown-arrow">▼</span>
+                </button>
+                <!-- 菜单项由 JS 填充：「全选」checkbox#checkAll + 各分类 checkbox（data-cat=code） -->
+                <div class="dropdown-menu" id="dropdownMenu"></div>
+            </div>
+        </div>
+        <div class="filter-group">
+            <label for="filterWord">字数：</label>
+            <select id="filterWord" class="select">
+                <option value="" selected>全部</option>
+                <option value="100w以内">100万以内</option>
+                <option value="100w以上">100万以上</option>
+                <option value="200w以上">200万以上</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="filterStatus">状态：</label>
+            <select id="filterStatus" class="select">
+                <option value="" selected>全部</option>
+                <option value="连载中">连载中</option>
+                <option value="已完结">已完结</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label class="check-label" for="filterBlocked">
+                <input type="checkbox" id="filterBlocked">
+                只看已拉黑
+            </label>
+        </div>
+    </section>
+
+    <!-- 书籍列表（由 JS 完全填充） -->
+    <div id="bookList" class="book-list">
+        <div class="loading">
+            <div class="spinner"></div>
+            <p>加载中...</p>
+        </div>
+    </div>
+</div>
+
+<!-- ===== 展示分类设置面板（模态；内容由 JS 按 meta.categories 填充，
+        Esc / 遮罩点击可关，焦点圈定在对话框内） ===== -->
+<div class="modal-mask" id="configMask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="configTitle">
+        <div class="modal-header">
+            <h2 class="modal-title" id="configTitle">⚙ 展示分类</h2>
+            <button type="button" class="modal-close" data-action="config-close" aria-label="关闭设置面板">✕</button>
+        </div>
+        <p class="modal-hint">保存后导航与一键抓取只包含勾选的分类</p>
+        <div class="modal-body" id="configBody">
+            <!-- 男频 / 女频两组 checkbox 由 JS 填充 -->
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-action="config-cancel">取消</button>
+            <button type="button" class="btn btn-primary" id="configSaveBtn" data-action="config-save">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Toast 通知容器（JS 注入 .toast，用 .show 控制出现） ===== -->
+<div id="toastHost" class="toast-host" aria-live="polite"></div>
+
+<!-- 唯一脚本入口：ES module，内部自行 import 其他模块 -->
+<script type="module" src="/js/app.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,872 @@
+/* ============================================================
+   css/components.css - 组件样式
+   令牌定义见 base.css；JS 注入的 DOM（书卡片/toast 等）类名
+   以 DOM 契约为准，勿随意改名。
+   ============================================================ */
+
+/* ---------- 分类导航（胶囊式，JS 填充 .nav-btn） ---------- */
+.category-nav {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-nav);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    padding: 10px 16px;
+    overflow-x: auto; /* 分类多时横向滚动 */
+    scrollbar-width: none;
+}
+.category-nav::-webkit-scrollbar {
+    display: none;
+}
+.nav-inner {
+    display: flex;
+    gap: var(--sp-2);
+    max-width: 1200px;
+    margin: 0 auto;
+}
+.nav-btn {
+    flex-shrink: 0;
+    padding: 6px 16px;
+    border: 1px solid transparent;
+    border-radius: var(--r-full);
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.nav-btn:hover {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+}
+.nav-btn.active {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: var(--shadow-accent);
+}
+.nav-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+/* 男频/女频分组标签：夹在胶囊之间，不参与点击；竖线把「全部」与组隔开 */
+.nav-group-label {
+    flex-shrink: 0;
+    align-self: center;
+    margin-left: var(--sp-2);
+    padding-left: var(--sp-2);
+    border-left: 1px solid var(--border-strong);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: var(--text-3);
+    white-space: nowrap;
+}
+
+/* ---------- 主容器 ---------- */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: var(--sp-5) var(--sp-4) 48px;
+}
+
+/* ---------- 统计 + 控制栏 ---------- */
+.stats {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: var(--sp-4);
+}
+.stats .info {
+    font-size: var(--fs-md);
+    color: var(--text-2);
+}
+.stats .info strong {
+    color: var(--accent);
+    font-size: var(--fs-xl);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    margin: 0 2px;
+}
+.stats #currentCategory {
+    color: var(--text-1);
+    font-weight: 600;
+}
+.stats .controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+}
+.stats .controls > label {
+    font-size: var(--fs-sm);
+    color: var(--text-3);
+    white-space: nowrap;
+}
+/* 「榜单：」前缀是 span（radiogroup 不能用 label for），样式与 label 对齐 */
+.ctl-label {
+    font-size: var(--fs-sm);
+    color: var(--text-3);
+    white-space: nowrap;
+}
+
+/* ---------- 表单控件基础 ---------- */
+.select,
+.input {
+    padding: 6px 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.select:hover,
+.input:hover {
+    border-color: var(--accent);
+}
+.select:focus-visible,
+.input:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(255, 61, 0, 0.15);
+}
+/* 「自定义每页数量」输入框，默认 hidden，选中「自定义」后由 JS 显示 */
+#customPageSize {
+    width: 76px;
+}
+
+/* ---------- 按钮基础 ---------- */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.05s;
+}
+.btn:active {
+    transform: translateY(1px);
+}
+.btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+}
+.btn-primary {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: var(--shadow-accent);
+}
+.btn-primary:hover {
+    background: var(--accent-hover);
+}
+/* 次级操作用主色淡底，避免与主操作抢视觉 */
+.btn-tonal {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+}
+.btn-tonal:hover {
+    background: #ffe4da;
+}
+/* 幽灵按钮：外链（番茄排行榜）/取消这类低权重操作 */
+.btn-ghost {
+    background: var(--surface);
+    border-color: var(--border-strong);
+    color: var(--text-2);
+    text-decoration: none;
+}
+.btn-ghost:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+}
+
+/* ---------- 榜单类型分段单选 ----------
+   input 只当无头开关用（保键盘/读屏），视觉全画在后面的 .rank-type-pill 上 */
+.rank-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-full);
+    background: var(--surface-2);
+}
+.rank-type-option {
+    position: relative;
+    display: inline-flex;
+}
+.rank-type-option input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+.rank-type-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 12px;
+    border-radius: var(--r-full);
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+    transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.rank-type-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    flex-shrink: 0;
+}
+.rank-type-option:hover .rank-type-pill {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+}
+/* 选中态写在 hover 之后：同为三级特异性，后者胜出，选中项悬停不褪色 */
+.rank-type-option input:checked + .rank-type-pill {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: var(--shadow-accent);
+}
+.rank-type-option input:checked + .rank-type-pill .rank-type-dot {
+    background: currentColor;
+}
+/* 键盘聚焦时把焦点画在可见的 pill 上（input 本体视觉隐藏） */
+.rank-type-option input:focus-visible + .rank-type-pill {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+.rank-type-option input:disabled + .rank-type-pill {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+/* ---------- 筛选栏（仅「全部」分类显示，JS 切 hidden） ---------- */
+.filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: 10px var(--sp-4);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: var(--sp-4);
+}
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.filter-group > label {
+    font-size: var(--fs-sm);
+    color: var(--text-3);
+    white-space: nowrap;
+}
+.check-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+    cursor: pointer;
+    user-select: none;
+}
+
+/* ---------- 分类多选下拉 ---------- */
+.filter-dropdown-group {
+    position: relative;
+    flex: 0 1 auto;
+}
+.dropdown-multi {
+    position: relative;
+    display: inline-block;
+}
+.dropdown-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-width: 140px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+.dropdown-toggle:hover {
+    border-color: var(--accent);
+}
+.dropdown-arrow {
+    font-size: 10px;
+    color: var(--text-3);
+    transition: transform 0.15s;
+}
+/* JS 若同步切换 aria-expanded，箭头随之翻转 */
+.dropdown-toggle[aria-expanded="true"] .dropdown-arrow {
+    transform: rotate(180deg);
+}
+/* 浮层默认隐藏，靠 #dropdownMenu.show 打开 */
+.dropdown-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: var(--z-dropdown);
+    min-width: 200px;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-lg);
+}
+.dropdown-menu.show {
+    display: block;
+    animation: menu-in 0.15s ease-out;
+}
+@keyframes menu-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 7px 10px;
+    border-radius: var(--r-sm);
+    font-size: var(--fs-sm);
+    color: var(--text-1);
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.dropdown-item:hover {
+    background: var(--surface-2);
+}
+.dropdown-item label {
+    flex: 1;
+    cursor: pointer;
+}
+/* 「全选」项与分类项之间做分隔 */
+.dropdown-item.check-all {
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    margin-bottom: var(--sp-1);
+    padding-bottom: 9px;
+}
+/* JS 会在全选与分类项之间渲染 <hr class="dropdown-divider">，
+   分隔线由 .check-all 的下边框承担，hr 本体不重复画线 */
+.dropdown-divider {
+    display: none;
+}
+
+/* ---------- 小说列表 ---------- */
+.book-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* ---------- 书卡片 ---------- */
+.book-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: var(--sp-4) var(--sp-5);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s, border-color 0.2s;
+}
+.book-item:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--border-strong);
+}
+/* 名次徽章：金/银/铜只给前三 */
+.book-item .rank {
+    min-width: 40px;
+    text-align: center;
+    font-size: 24px;
+    font-weight: 800;
+    line-height: 1.2;
+    color: var(--border-strong);
+    font-variant-numeric: tabular-nums;
+    padding-top: 2px;
+    flex-shrink: 0;
+}
+.book-item .rank.top1 { color: var(--gold); }
+.book-item .rank.top2 { color: var(--silver); }
+.book-item .rank.top3 { color: var(--bronze); }
+
+/* ---------- 封面 ---------- */
+.book-item .cover {
+    position: relative;
+    width: 64px;
+    height: 88px;
+    flex-shrink: 0;
+    border-radius: var(--r-sm);
+    overflow: hidden;
+    background: linear-gradient(135deg, #f1f3f6, #e6eaf0);
+    box-shadow: inset 0 0 0 1px rgba(16, 24, 40, 0.06);
+}
+.book-item .cover .cover-ph {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    opacity: 0.4;
+}
+/* 封面直链带签名会过期：img 绝对定位盖住占位，JS 加载失败移除
+   <img> 后自然露出底下的 📖 占位 */
+.book-item .cover img {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* ---------- 卡片内容区 ---------- */
+.book-item .content {
+    flex: 1;
+    min-width: 0;
+}
+.book-item .title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    font-size: var(--fs-lg);
+    font-weight: 600;
+    color: var(--text-1);
+    line-height: 1.4;
+}
+.book-item .title a {
+    color: inherit;
+    text-decoration: none;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.book-item .title a:hover {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+.book-item .title .status {
+    flex-shrink: 0;
+    padding: 1px 9px;
+    border-radius: var(--r-full);
+    font-size: var(--fs-xs);
+    font-weight: 400;
+    background: var(--success-soft);
+    color: var(--success);
+    white-space: nowrap;
+}
+.book-item .title .status.finished {
+    background: var(--surface-2);
+    color: var(--text-3);
+}
+.book-item .info-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-top: 6px;
+    font-size: var(--fs-sm);
+    color: var(--text-3);
+}
+.book-item .info-row .author {
+    color: var(--accent);
+    font-weight: 500;
+}
+.book-item .info-row .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 9px;
+    border-radius: var(--r-full);
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+}
+.book-item .info-row .chip i {
+    font-style: normal;
+    font-size: 11px;
+    opacity: 0.85;
+}
+.book-item .desc {
+    margin-top: var(--sp-2);
+    font-size: var(--fs-sm);
+    line-height: 1.6;
+    color: var(--text-2);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.book-item .meta {
+    margin-top: var(--sp-2);
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ---------- 拉黑/恢复按钮 ---------- */
+.block-btn {
+    flex-shrink: 0;
+    padding: 2px 10px;
+    border: none;
+    border-radius: var(--r-sm);
+    background: var(--danger);
+    color: #fff;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.block-btn:hover {
+    background: #b3261e;
+}
+/* 恢复是反向操作，沿用红色会被读成又一个危险按钮 */
+.block-btn.restore {
+    background: var(--success);
+}
+.block-btn.restore:hover {
+    background: #137333;
+}
+.block-btn:disabled,
+.block-btn.restore:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+/* ---------- 加载 / 空状态 ---------- */
+.loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 64px 20px;
+    background: var(--surface);
+    border: 1px dashed var(--border);
+    border-radius: var(--r-lg);
+    color: var(--text-3);
+}
+.loading .spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid var(--surface-3);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+.loading p {
+    margin-top: var(--sp-3);
+    font-size: var(--fs-sm);
+}
+.empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 64px 20px;
+    background: var(--surface);
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--r-lg);
+    color: var(--text-3);
+    text-align: center;
+}
+.empty .icon {
+    font-size: 44px;
+    line-height: 1;
+    margin-bottom: var(--sp-3);
+}
+.empty p {
+    font-size: var(--fs-md);
+    color: var(--text-2);
+}
+.empty .hint {
+    margin-top: 6px;
+    font-size: var(--fs-sm);
+    color: var(--text-3);
+}
+
+/* ---------- 落库失败警示条 ---------- */
+.db-hint {
+    margin-bottom: var(--sp-1);
+    padding: 10px 14px;
+    font-size: var(--fs-sm);
+    color: var(--warn);
+    background: var(--warn-soft);
+    border: 1px solid var(--warn-border);
+    border-radius: var(--r-md);
+}
+
+/* ---------- 分页条 ---------- */
+.pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    padding: var(--sp-4) 0 var(--sp-1);
+}
+.pager-btn {
+    padding: 6px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.pager-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent-hover);
+    background: var(--accent-soft);
+}
+.pager-btn:disabled {
+    border-color: var(--border);
+    background: var(--surface-2);
+    color: var(--text-3);
+    cursor: not-allowed;
+}
+.pager-info {
+    padding: 0 var(--sp-1);
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 展示分类设置面板（模态；显隐走 #configMask 的 hidden 属性） ---------- */
+.modal-mask {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--sp-4);
+    background: rgba(16, 24, 40, 0.45);
+    animation: mask-in 0.15s ease-out;
+}
+@keyframes mask-in {
+    from { opacity: 0; }
+}
+.modal {
+    display: flex;
+    flex-direction: column;
+    width: min(560px, 100%);
+    max-height: min(80vh, 640px);
+    background: var(--surface);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    animation: modal-in 0.18s ease-out;
+}
+@keyframes modal-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.98);
+    }
+}
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-4) var(--sp-5);
+    border-bottom: 1px solid var(--border);
+}
+.modal-title {
+    font-size: var(--fs-lg);
+    font-weight: 600;
+    color: var(--text-1);
+}
+.modal-close {
+    padding: 4px 8px;
+    border: none;
+    border-radius: var(--r-sm);
+    background: none;
+    font-size: 16px;
+    color: var(--text-3);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.modal-close:hover {
+    background: var(--surface-2);
+    color: var(--text-1);
+}
+.modal-hint {
+    padding: var(--sp-3) var(--sp-5) 0;
+    font-size: var(--fs-sm);
+    color: var(--text-3);
+}
+.modal-body {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    padding: var(--sp-3) var(--sp-5) var(--sp-4);
+}
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sp-2);
+    padding: var(--sp-3) var(--sp-5);
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+}
+
+/* 面板里的男频/女频分组 */
+.config-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--sp-2);
+}
+.config-group-head h3 {
+    font-size: var(--fs-md);
+    font-weight: 600;
+    color: var(--text-1);
+}
+.config-group-count {
+    margin-left: 6px;
+    font-size: var(--fs-xs);
+    font-weight: 400;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+}
+.config-group-actions {
+    display: flex;
+    gap: var(--sp-1);
+}
+/* 全选/清空用弱化的文字按钮，别和保存抢视觉 */
+.link-btn {
+    padding: 2px 6px;
+    border: none;
+    border-radius: var(--r-sm);
+    background: none;
+    font-size: var(--fs-sm);
+    color: var(--accent-hover);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.link-btn:hover {
+    background: var(--accent-soft);
+}
+/* 分类 checkbox 网格：窄屏自动减列 */
+.config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 6px var(--sp-3);
+}
+.config-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: var(--r-sm);
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s;
+}
+.config-item:hover {
+    background: var(--surface-2);
+}
+.config-empty {
+    padding: var(--sp-4) 0;
+    text-align: center;
+    color: var(--text-3);
+    font-size: var(--fs-sm);
+}
+
+/* ---------- Toast 通知（JS 注入 .toast，.show 控制出现） ---------- */
+.toast-host {
+    position: fixed;
+    top: var(--sp-4);
+    right: var(--sp-4);
+    z-index: var(--z-toast);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--sp-2);
+    pointer-events: none; /* 容器不挡点击，单条 toast 自行恢复 */
+    max-width: min(360px, calc(100vw - 32px));
+}
+.toast {
+    pointer-events: auto;
+    min-width: 200px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--info);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-lg);
+    font-size: var(--fs-sm);
+    color: var(--text-1);
+    /* fetchAll 的失败/未落库清单是多行文本，靠 \n 折行 */
+    white-space: pre-line;
+    opacity: 0;
+    transform: translateX(16px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.toast.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+.toast.success {
+    border-left-color: var(--success);
+}
+.toast.error {
+    border-left-color: var(--danger);
+}
+.toast.warn {
+    border-left-color: var(--warn);
+}
