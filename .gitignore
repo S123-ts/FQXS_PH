@@ -1,0 +1,63 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+
+### 本机私密配置（数据库口令等）###
+src/main/resources/application-local.yml
+### 本机 AI 判定密钥（模板是 ai-keys.bat.example，填好的 ai-keys.bat 不进版本管理）###
+ai-keys.bat
+### H2 文件库（数据，不进版本管理）###
+/data/
+log/
+*.log
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### 不上传 GitHub 的文档（规则见 AGENTS.md「交付口径」节，决策 D2）###
+/AGENTS.md
+/doc/
+/README.md
+
+### WorkBuddy 本地工作数据（记忆/会话，不进版本管理）###
+.workbuddy/
+.workbuddy-ai/
+
+### 前端回归截图与一次性探针脚本（过程产物，不进版本管理）###
+shots-before/
+shots-after/
+shots-dark/
+shots/
+scripts/_*.mjs
+
+### 前端截图依赖（npm 安装，不入库）与并行工具的本地目录
+node_modules/
+.zcode/
+.qoder-credits/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/

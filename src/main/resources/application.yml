@@ -1,0 +1,199 @@
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+    session:
+      # 空闲超时：2 小时不操作就要求重新登录（报告 L5 的会话加固）。
+      # 是「空闲」不是「总时长」，页面一直在点就不会掉
+      timeout: ${SESSION_TIMEOUT:2h}
+      cookie:
+        # 显式写死三条，不依赖容器默认值：JS 读不到、跨站 POST 带不上、上 HTTPS 后可置 secure
+        http-only: true
+        same-site: lax
+        # 反代终止 HTTPS 后设 SESSION_COOKIE_SECURE=true；仍是 http 时开它会导致「登录成功却立刻掉线」
+        secure: ${SESSION_COOKIE_SECURE:false}
+
+spring:
+  datasource:
+    driver-class-name: org.h2.Driver
+    # 存储是项目目录下的文件库，不需要任何数据库服务
+    url: ${DB_URL:jdbc:h2:file:./data/fqxs;DB_CLOSE_ON_EXIT=FALSE}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+    hikari:
+      # 池 10 个连接、5 秒超时：此前“5 连接 + 2 秒超时”是数据库稍慢就 ConnectionTimeout 的主因
+      connection-timeout: 5000
+      initialization-fail-timeout: 0
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 60000
+      max-lifetime: 600000
+      pool-name: fqxs-pool
+
+  jpa:
+    database: h2
+    # OSIV 会在响应渲染期间继续占用连接，配合小连接池容易拖垮并发
+    open-in-view: false
+    show-sql: false
+    hibernate:
+      # 表结构由 Flyway 迁移维护，应用不改库
+      ddl-auto: none
+    properties:
+      hibernate:
+        # 启动阶段不读取 JDBC 元数据：库文件被占用/不可用时应用照常启动（Hibernate 6.5 新键名）
+        boot.allow_jdbc_metadata_access: false
+
+  # 表结构由 Flyway 管理：V1__baseline.sql 是固化基线。
+  # 已有库启动时 baseline 到 V1（不重放脚本），新库执行 V1 建表；后续变更另建 V2。
+  # 迁移失败不阻断启动（数据库被锁时仍以 503 降级），容错策略见 bootstrap/FlywayConfig。
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 1
+
+  jackson:
+    # 时刻格式不在这里配：date-format 对 LocalDateTime 无效，实体字段用 @JsonFormat 标注
+    default-property-inclusion: non_null
+
+crawler:
+  fanqie:
+    base-url: https://fanqienovel.com
+    rank-api: /api/rank/category/list
+    timeout: 15000
+    # 由 FanqieApiClient 真实执行：5xx / 429 / IO 异常时退避重试
+    max-retries: 3
+    default:
+      # 排查兜底默认值；运行时榜单寻址以 H2 app_config 的 rank_type（rankMold 2=阅读榜 1=新书榜）
+      # 与分类目录 CategoryCatalog 的 (gender, subcategoryId) 为准
+      # gender: 1=男频 0=女频；gender/rankMold/category_id 三者共同决定上游返回哪个榜
+      subcategory-id: 1141
+      page: 1
+      size: 30
+      app-id: 2503
+      rank-list-type: 3
+      gender: 1
+      rank-mold: 2
+      rank-version: ""
+
+app:
+  # 管理类接口（DELETE /api/db/**）的访问令牌；留空表示这些接口一律 403
+  admin-token: ${APP_ADMIN_TOKEN:}
+
+  # 登录凭据（安全测试报告 H1「无身份认证」的代码层修复，见 doc/技术交接.md §4.1）
+  # 默认账号口令按要求写死在程序里，改它有两种方式：改这里，或用环境变量覆盖。
+  # ⚠️ 仓库里的默认值是 admin/admin（公开仓库不写个人口令）；公网部署必须用
+  #    APP_LOGIN_USER / APP_LOGIN_PASSWORD 覆盖，并把这里的默认值留空
+  #    （留空 = 登录功能整体关闭、全站拒绝访问，是刻意的 fail-closed）。
+  auth:
+    username: ${APP_LOGIN_USER:admin}
+    password: ${APP_LOGIN_PASSWORD:admin}
+    # 反代后面所有人的 remoteAddr 都是 127.0.0.1，按 IP 限流会退化成「一次锁定全站」。
+    # 开这个开关就必须让反代**覆盖** X-Forwarded-For（Nginx: proxy_set_header X-Forwarded-For $remote_addr;），
+    # 否则客户端能自己伪造来源绕过失败限流
+    trust-forwarded-for: ${APP_AUTH_TRUST_FORWARDED:false}
+
+# AI 文判定：三家免费引擎（GLM / 千帆 ERNIE / 硅基流动 Qwen）跑整本初筛与逐章校验
+ai:
+  detect:
+    enabled: true
+    # 默认取样与逐章校验的章节范围：前 10 章（未登录唯一稳定的完整正文区间）
+    sample-head-chapters: 10
+    # 显式选择「中段+最新」策略时才用到的档位
+    sample-mid-chapters: 2
+    sample-recent-chapters: 2
+    # 单章正文低于此字数视为试读（VIP 章节未登录只给开头），不参与取样；
+    # 样本总字数不足下限直接报错，避免拿试读片段硬判
+    min-chapter-chars: 500
+    min-sample-chars: 1500
+    # 可读章节上限：未登录只有前 10 章是完整正文（第 11 章起实测 150–180 字试读），
+    # 取样候选与回退扫描都钳在此区间，省掉必然白拿的深章请求；0 = 不限（接入会员通道后做全书抽查）
+    free-head-chapters: 10
+    # 会员正文通道：官方未登录只有前 10 章完整，中段/最新抽查靠它取第 11 章起的全文。
+    # 2026-10-22 S1 实测与官方逐字等价（只差每段一个全角空格），同样是 PUA 混淆串。
+    # 只填源站域名：它的内网穿透地址按天变，靠跟随 302 拿当前后端
+    third-party-base-url: https://fq-book.netsite.cc
+    third-party-enabled: true
+    # 该线路跑在别人的共享云手机上，挂了按形态判失败并冷却，期间深章直接跳过、回退免费区
+    third-party-cooldown-seconds: 300
+    # 失败留证与自动停用：同一引擎连续 N 次判定失败就停用 M 小时（到期自动恢复，重启不丢）
+    fault-suspend-threshold: 3
+    fault-suspend-hours: 48
+    # 单本取样最多请求的章节数（策略章节 + 回退扫描合计）：
+    # 防止一次判定把上游/书源 API 打太多次
+    sample-request-limit: 12
+    # 单本送判上限：取样改成「前 10 章 / 末 10 章 / 两段各 5 章」后，8000 字会在第 4 章就截断；
+    # 24000 字约等于 10 章 × 2400 字，仍留足千帆 32k 上下文的余量
+    max-chars-per-book: 24000
+    # 概率 >= 70 判 AI，>= 50 判疑似，其余判非 AI
+    free-ai-threshold: 70
+    free-suspect-threshold: 50
+    # 逐章校验单批章节数：每种型号按取样条件（默认前 10 章）各查一批，查完换型号
+    verify-max-chapters: 10
+    # 批量初筛接口未指定 limit 时的默认本数（页面加载不再自动初筛）；手动按钮单次上限 30 本
+    auto-sweep-limit: 5
+    sweep-limit-max: 30
+    # 每日模型调用次数上限（安全测试报告 M1）：一次真实出网调用算一次，0 = 不限。
+    # 挡的是「循环点按钮/脚本刷接口把免费额度烧完」；超了接口回 429，不是 400/500
+    daily-call-limit: ${AI_DAILY_CALL_LIMIT:500}
+    # 两次上游请求间隔，避免连续抓章节触发风控（并发初筛时为全局限速节拍）
+    request-interval-millis: 800
+    # 批量初筛的并发路数：只有模型调用并行，上游章节请求仍按上面的间隔全局限速
+    sweep-concurrency: 3
+    # 章节正文 LRU 缓存条数：初筛后再逐章校验、换引擎重判时不再重复抓上游
+    chapter-cache-size: 300
+    # 官方可读区（前 10 章）正文落库：默认取样就是前 10 章，同一本书换引擎重判/批量初筛/逐章校验
+    # 都会反复读同一批章节；落库后第二次起零上游请求（novel_chapter 表）
+    chapter-store-enabled: true
+    # 提示词选取策略：random 每次从 ai_prompt 表的启用池里随机取一条（默认），
+    # fixed 固定用 default-prompt（结论可复现时用）。变体的权重与启停直接在库里改
+    prompt-strategy: random
+    default-prompt: p1-total
+    timeout-seconds: 90
+    # 密钥只走环境变量，配置文件不落明文
+    glm-api-key: ${GLM_API_KEY:}
+    qwen-api-key: ${QWEN_API_KEY:}
+    # 百度千帆（OpenAI 兼容 V2）：型号需先在控制台开通在线服务；未开通时接口报 invalid_model
+    qianfan-url: https://qianfan.baidubce.com/v2/chat/completions
+    qianfan-model: ernie-4.5-turbo-32k
+    qianfan-api-key: ${QIANFAN_API_KEY:}
+    # 免费档文本模型。2026-10-21 实测：裸名 glm-4-flash 可用（官方免费列表里对应
+    # GLM-4-Flash-250414，128K 上下文）；官方首推的免费型号 GLM-4.7-Flash 当时返回
+    # 429「访问量过大」，不适合批量跑 1200+ 本，故仍用 glm-4-flash
+    glm-model: glm-4-flash
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      # health 细节会带数据库连接状态，对外只给 UP/DOWN
+      show-details: never
+
+# OpenAPI 文档：/swagger-ui.html 浏览，/v3/api-docs 取 JSON。
+# 只收录 /api/**（页面本身与 actuator 不进文档）；文档页的 CSP 在 SecurityHeadersFilter 单独放宽
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+  packages-to-scan: org.example.fqxs.controller
+  paths-to-match: /api/**
+
+logging:
+  charset:
+    console: UTF-8
+    file: UTF-8
+  level:
+    # 生产默认 INFO（报告 M2）：DEBUG 会把 URL、参数与内部流程写进日志，扩大暴露面。
+    # 本机排障用 LOG_LEVEL=DEBUG 临时覆盖，不要改这里
+    org.example.fqxs: ${LOG_LEVEL:INFO}
+    okhttp3: INFO
+    com.zaxxer.hikari: WARN

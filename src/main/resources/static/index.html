@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>番茄小说排行榜</title>
+    <link rel="stylesheet" href="/css/base.css">
+    <link rel="stylesheet" href="/css/components.css">
+    <link rel="stylesheet" href="/css/theme.css">
+    <link rel="stylesheet" href="/css/ai-keys.css">
+</head>
+<body>
+
+<!-- ===== 分类导航（按钮由 JS 填充进 #navInner：全部 + 男频组 + 女频组） ===== -->
+<nav class="category-nav" id="categoryNav" aria-label="分类导航">
+    <div class="nav-inner" id="navInner"></div>
+</nav>
+
+<!-- ===== 主内容 ===== -->
+<div class="container">
+    <!-- 统计 + 控制栏 -->
+    <section class="stats chrome-collapsed" id="statsBar">
+        <!-- 手机端折叠摘要条（桌面隐藏）：一行显示当前榜单 + 筛选，点开才铺开完整控制区。
+             默认折叠，展开态存 sessionStorage；折叠时吸在导航下方 -->
+        <button type="button" class="chrome-summary" id="chromeSummary"
+                aria-expanded="false" aria-controls="statsBody">
+            <span class="chrome-summary-text" id="chromeSummaryText">榜单加载中</span>
+            <span class="chrome-summary-action"><span id="chromeSummaryActionText">筛选</span> <span aria-hidden="true">⚙</span></span>
+        </button>
+        <div class="stats-body" id="statsBody">
+            <!-- 统计区 KPI 化：主数字放大，其余降为次级信息，中间用竖线分隔 -->
+            <div class="info">
+                <span class="kpi">
+                    <strong id="totalCount">0</strong>
+                    <span class="kpi-unit">本小说</span>
+                </span>
+                <span class="info-item">当前分类：<b id="currentCategory">全部</b></span>
+                <span class="info-item">当前榜单：<b id="currentRankType">—</b></span>
+            </div>
+            <!-- 控制栏拆成显式两层：第一层选范围，第二层是动作。
+                 两层各自换行，不再让动作区在自己内部二次折行（那会把一行按钮拆成两截错位） -->
+            <div class="controls">
+                <div class="ctl-row ctl-row-primary">
+                    <!-- 按语义分组：换行时整组走动，避免“榜单：”与胶囊分离 -->
+                    <div class="ctl-group ctl-rank">
+                        <span class="ctl-label" id="rankTypeLabel">榜单：</span>
+                        <!-- 榜单类型分段单选，选项由 JS 按 meta.rankTypes 填充 -->
+                        <div class="rank-type" id="rankTypeGroup" role="radiogroup" aria-labelledby="rankTypeLabel"></div>
+                    </div>
+                    <div class="ctl-group ctl-pagesize">
+                        <label for="pageSizeSelect">每页显示：</label>
+                        <!-- 下拉与自定义数字框合成一个连体控件：一次设置只呈现为一个整体，
+                             不能拆成左右两个互不相干的框 -->
+                        <div class="ctl-combo">
+                            <select id="pageSizeSelect" class="select" aria-label="每页显示条数">
+                                <option value="10">10</option>
+                                <option value="20">20</option>
+                                <option value="30" selected>30</option>
+                                <option value="custom">自定义</option>
+                            </select>
+                            <!-- 选中「自定义」时 JS 移除 hidden 显示此项 -->
+                            <input type="number" id="customPageSize" class="input combo-aux" min="1" value="50" hidden
+                                   aria-label="自定义每页数量">
+                        </div>
+                    </div>
+                    <!-- 视图配置：展示分类（调导航显示集），跟着「看什么」这一层走 -->
+                    <div class="ctl-group ctl-view">
+                        <button type="button" class="btn btn-tonal" id="configBtn" data-action="open-config"><span class="btn-ico" aria-hidden="true">⚙</span><span class="btn-text">展示分类</span></button>
+                    </div>
+                    <!-- 源站榜单入口：随时对照数据真身，宽屏贴到本行最右收尾 -->
+                    <a class="btn btn-ghost" href="https://fanqienovel.com/rank" target="_blank" rel="noopener noreferrer">番茄排行榜 ↗</a>
+                    <!-- 退出登录：登录门的出口。与源站外链同为 ghost 样式，不抢主操作 -->
+                    <button type="button" class="btn btn-ghost" id="logoutBtn" data-action="logout" title="退出登录">退出</button>
+                </div>
+                <div class="ctl-row ctl-actions">
+                    <!-- 图标与文字必须各自成 span：直接写成「📥 文字」是一个文本节点，
+                         部分 emoji 字形的绘制宽度大于布局宽度，会压住后面的汉字。
+                         拆开后图标占独立 flex 槽位，间隙由 .btn 的 gap 控制。 -->
+                    <button type="button" class="btn btn-primary" id="refreshBtn" data-action="refresh"><span class="btn-ico" aria-hidden="true">🔄</span><span class="btn-text">刷新</span></button>
+                    <button type="button" class="btn btn-tonal" id="fetchAllBtn" data-action="fetch-all"><span class="btn-ico" aria-hidden="true">📥</span><span class="btn-text">一键获取全部</span></button>
+                    <!-- AI 工具簇：判定组 + 密钥配置，整簇贴右。
+                         AI 相关的都归这儿——选引擎、判定本页、批量初筛、配 Key 是一条线上的事；
+                         它与"刷新/抓取"同层（都是对数据动手），只是分站左右两端。
+                         放第一行会挤成三行（1080px 下左组 558 + 本簇 505 > 行宽），所以留在这一行贴右 -->
+                    <div class="ctl-tail">
+                        <!-- AI 判定组：引擎下拉只列 Key 已配置的免费引擎；朱雀不在下拉里——
+                             它按 token 计费，只能靠每本书后面的按钮手动逐章消耗。
+                             这一组是「选引擎 → 校验选中 / 初筛」的完整工作流，用淡底+描边包成一个整体，
+                             不再复用 .ctl-combo（那是「下拉+输入框连体」的语义，塞进 label 会被压字） -->
+                        <div class="ctl-group ctl-ai">
+                            <label class="ctl-ai-label" for="aiEngineSelect">AI引擎</label>
+                            <select id="aiEngineSelect" class="select" aria-label="选择免费判定引擎">
+                                <option value="">未配置</option>
+                            </select>
+                            <!-- 取样规则：三档固定配方，章数不再由界面填写（后端 SampleSpec 三档均为固定章数）。
+                                 默认前 10 章走官网并落库，最新/随机走第三方会员通道 -->
+                            <label class="ctl-ai-label" for="sampleSelect">取样</label>
+                            <select id="sampleSelect" class="select" aria-label="取样规则"
+                                    title="默认：全书前 10 章，官网直取并入库；最新：全书最后 10 章，走第三方；随机：第 11 章起抽两段各 5 章，走第三方">
+                                <option value="" selected>前10章·官网</option>
+                                <option value="recent">最新10章·第三方</option>
+                                <option value="random">随机2×5章·第三方</option>
+                            </select>
+                            <!-- 重判只作用于「校验选中」：批量初筛的语义是补未判的书，不该去重刷已有结论 -->
+                            <label class="ctl-check" title="忽略该引擎已有结论重新判定，会再消耗一次模型额度；只影响「校验选中」">
+                                <input type="checkbox" id="aiForceChk">重判
+                            </label>
+                            <button type="button" class="btn btn-tonal" id="aiPageBtn" data-action="ai-page" disabled
+                                    title="用所选引擎逐个判定已勾选的书（可单选或多选）"><span class="btn-ico" aria-hidden="true">🧪</span><span class="btn-text">校验选中</span><span class="btn-count" hidden></span></button>
+                            <button type="button" class="btn btn-tonal" id="aiSweepBtn" data-action="ai-sweep"
+                                    title="每点一次判定一批（默认 5 本）未判过的书，取当前取样规则；不再自动续批"><span class="btn-ico" aria-hidden="true">🧪</span><span class="btn-text">AI 初筛</span></button>
+                        </div>
+                        <!-- 记录入口：审查记录页（章节拉取 / 正在审查 / 判定结果），失败日志从它的头部进。
+                             为什么不是两个按钮：动作行在 1000px 只有 934px 可用宽度，
+                             再塞一颗就整行溢出（实测 scrollWidth 1044 > clientWidth 934，API 密钥被裁掉） -->
+                        <a class="btn btn-tonal" id="aiRecordsBtn" href="/records"
+                           title="章节拉取 / 正在审查 / 判定结果；失败日志也从这里进"><span class="btn-ico" aria-hidden="true">📜</span><span class="btn-text">审查记录</span></a>
+                        <button type="button" class="btn btn-tonal" id="aiKeyBtn" data-action="open-ai-keys"
+                                title="配置 GLM / ERNIE / Qwen 的 API Key（只存本机，不进 Git）"><span class="btn-ico" aria-hidden="true">🔑</span><span class="btn-text">API 密钥</span></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 筛选栏（仅「全部」分类下显示，JS 切 hidden 属性，默认显示）。
+                 放在统计卡内部：桌面作为控制卡第三行，手机随控制区一起折叠 -->
+            <section class="filter-bar" id="filterBar">
+                <div class="filter-group filter-dropdown-group">
+                    <label class="filter-label">分类：</label>
+                    <div class="dropdown-multi" id="dropdownMulti">
+                        <button type="button" class="dropdown-toggle" aria-haspopup="true"
+                                aria-expanded="false" aria-controls="dropdownMenu">
+                            <span id="dropdownLabel">全部</span>
+                            <span class="dropdown-arrow">▼</span>
+                        </button>
+                        <!-- 菜单项由 JS 填充：「全选」checkbox#checkAll + 各分类 checkbox（data-cat=code） -->
+                        <div class="dropdown-menu" id="dropdownMenu"></div>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label for="filterWord">字数：</label>
+                    <select id="filterWord" class="select">
+                        <option value="">全部</option>
+                        <option value="100w以内">100万以内</option>
+                        <option value="100w以上" selected>100万以上</option>
+                        <option value="200w以上">200万以上</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterStatus">状态：</label>
+                    <select id="filterStatus" class="select">
+                        <option value="" selected>全部</option>
+                        <option value="连载中">连载中</option>
+                        <option value="已完结">已完结</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label class="check-label" for="filterBlocked">
+                        <input type="checkbox" id="filterBlocked">
+                        只看已拉黑
+                    </label>
+                </div>
+            </section>
+        </div>
+    </section>
+
+    <!-- 批量操作条：只在「全部」视图出现（拉黑/恢复本来就只在那儿可用）。
+         默认 hidden，由 render.js 的 syncBatchBar 按当前页是否有可勾选行决定显隐 -->
+    <div id="batchBar" class="batch-bar" hidden>
+        <label class="batch-all">
+            <input type="checkbox" id="batchAll">
+            全选本页
+        </label>
+        <span class="batch-count">勾选左侧方框可批量操作当前页</span>
+        <div class="batch-actions">
+            <button type="button" class="btn btn-soft btn-sm" data-action="batch-block" disabled>
+                <span class="btn-ico" aria-hidden="true">🚫</span><span class="btn-text">批量拉黑</span>
+            </button>
+            <button type="button" class="btn btn-soft btn-sm" data-action="batch-unblock" disabled>
+                <span class="btn-ico" aria-hidden="true">↩</span><span class="btn-text">批量恢复</span>
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="batch-clear" disabled>
+                <span class="btn-text">清除选择</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- 书籍列表（由 JS 完全填充） -->
+    <div id="bookList" class="book-list">
+        <div class="loading">
+            <div class="spinner"></div>
+            <p>加载中...</p>
+        </div>
+    </div>
+</div>
+
+<!-- ===== 展示分类设置面板（模态；内容由 JS 按 meta.categories 填充，
+        Esc / 遮罩点击可关，焦点圈定在对话框内） ===== -->
+<div class="modal-mask" id="configMask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="configTitle">
+        <div class="modal-header">
+            <h2 class="modal-title" id="configTitle">⚙ 展示分类</h2>
+            <button type="button" class="modal-close" data-action="config-close" aria-label="关闭设置面板">✕</button>
+        </div>
+        <p class="modal-hint">保存后导航与一键抓取只包含勾选的分类</p>
+        <div class="modal-body" id="configBody">
+            <!-- 男频 / 女频两组 checkbox 由 JS 填充 -->
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-action="config-cancel">取消</button>
+            <button type="button" class="btn btn-primary" id="configSaveBtn" data-action="config-save">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== AI 引擎密钥面板（模态；内容由 js/ai_config.js 填充，
+        Esc / 遮罩点击可关，焦点圈定在对话框内） ===== -->
+<div class="modal-mask" id="aiKeyMask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="aiKeyTitle">
+        <div class="modal-header">
+            <h2 class="modal-title" id="aiKeyTitle">🔑 AI 引擎密钥</h2>
+            <button type="button" class="modal-close" data-action="ai-key-close" aria-label="关闭密钥面板">✕</button>
+        </div>
+        <p class="modal-hint">配任意一个免费引擎即可使用「校验选中 / AI 初筛」；密钥只存本机，不进 Git</p>
+        <div class="modal-body" id="aiKeyBody">
+            <!-- 三个引擎的表单由 JS 填充 -->
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" data-action="ai-key-cancel">取消</button>
+            <button type="button" class="btn btn-primary" id="aiKeySaveBtn" data-action="ai-key-save">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== AI 判定详情（每个引擎的 AI 率/结论/理由，内容由 js/ai_detail.js 填充） ===== -->
+<div class="modal-mask" id="aiDetailMask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="aiDetailTitle">
+        <div class="modal-header">
+            <h2 class="modal-title font-DNMrHsV173Pd4pgy" id="aiDetailTitle">AI 判定详情</h2>
+            <button type="button" class="modal-close" data-action="ai-detail-close" aria-label="关闭 AI 详情">✕</button>
+        </div>
+        <p class="modal-hint" id="aiDetailHint">每个引擎的最新一次结论</p>
+        <div class="modal-body" id="aiDetailBody"></div>
+    </div>
+</div>
+
+<!-- ===== Toast 通知容器（JS 注入 .toast，用 .show 控制出现） ===== -->
+<div id="toastHost" class="toast-host" aria-live="polite"></div>
+
+<!-- 唯一脚本入口：ES module，内部自行 import 其他模块 -->
+<script type="module" src="/js/app.js"></script>
+
+</body>
+</html>

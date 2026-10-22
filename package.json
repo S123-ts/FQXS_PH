@@ -1,0 +1,13 @@
+{
+  "scripts": {
+    "typecheck": "tsc -p jsconfig.json",
+    "smoke": "node scripts/ui-smoke.mjs",
+    "smoke:block": "node scripts/ui-block-smoke.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.64.1"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,124 @@
+/* ============================================================
+   css/faults.css - 模型调用失败日志页
+   单独成文件：这一页是独立静态页，不复用主界面的模态面板样式，
+   也避免和 components.css 里正在调整的工具栏布局互相影响。
+   颜色只用 theme.css 已有的变量与继承，缺变量时宁可退化也不写死色值。
+   ============================================================ */
+
+.fault-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    flex-wrap: wrap;
+}
+
+.fault-title {
+    margin: 0;
+    font-size: 18px;
+}
+
+.fault-main {
+    padding: 0 16px 32px;
+    max-width: 1200px;
+}
+
+.fault-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 10px 0 14px;
+}
+
+.fault-label {
+    font-size: 13px;
+    opacity: .78;
+}
+
+/* 停用中的引擎提示块：有停用才显示内容，空的时候整块收起不留空白 */
+.fault-suspended:not(:empty) {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+}
+
+.fault-susp-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 4px 0;
+}
+
+.fault-susp-reason {
+    font-size: 12px;
+    opacity: .76;
+    flex: 1 1 240px;
+}
+
+.fault-summary {
+    margin: 0 0 10px;
+    font-size: 13px;
+    opacity: .82;
+}
+
+.fault-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    table-layout: fixed;
+}
+
+.fault-table th,
+.fault-table td {
+    text-align: left;
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    overflow-wrap: anywhere;
+}
+
+.fault-table th {
+    font-weight: 600;
+    opacity: .8;
+    white-space: nowrap;
+}
+
+/* 原因与返回片段是主角，时间/型号次之 */
+.fault-table th:nth-child(6),
+.fault-table td:nth-child(6) {
+    width: 26%;
+}
+
+.fault-table th:nth-child(7),
+.fault-table td:nth-child(7) {
+    width: 30%;
+}
+
+.fault-excerpt {
+    opacity: .84;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 12px;
+}
+
+.fault-empty {
+    text-align: center;
+    opacity: .6;
+}
+
+/* 窄屏：表格横向滚动，不把列挤成一团。
+   只藏次要列——「类型」是给人看的分类必须留着，HTTP 码与它重复、书名可点进明细看。 */
+@media (max-width: 760px) {
+    .fault-table {
+        font-size: 12px;
+    }
+
+    .fault-table th:nth-child(5),
+    .fault-table td:nth-child(5),
+    .fault-table th:nth-child(8),
+    .fault-table td:nth-child(8) {
+        display: none;
+    }
+}

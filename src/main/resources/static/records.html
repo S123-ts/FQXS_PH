@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>审查记录 · 番茄小说排行榜</title>
+    <link rel="stylesheet" href="/css/base.css">
+    <link rel="stylesheet" href="/css/components.css">
+    <link rel="stylesheet" href="/css/theme.css">
+    <link rel="stylesheet" href="/css/records.css">
+    <script type="module" src="/js/records.js"></script>
+</head>
+<body>
+<!-- ===== 顶部：标题 + 出口（CSP 是 script-src 'self'，脚本与样式只能走外部文件） ===== -->
+<header class="rec-head">
+    <h1 class="rec-title">审查记录</h1>
+    <div class="rec-head-actions">
+        <a class="btn btn-ghost" href="/faults">📋 失败日志</a>
+        <a class="btn btn-ghost" href="/">← 回榜单</a>
+    </div>
+</header>
+
+<main class="rec-main">
+    <section class="rec-toolbar" aria-label="查询条件">
+        <label for="recWindow">时间窗口</label>
+        <select class="select" id="recWindow">
+            <option value="6">最近 6 小时</option>
+            <option value="24" selected>最近 24 小时</option>
+            <option value="72">最近 3 天</option>
+            <option value="168">最近 7 天</option>
+            <option value="720">最近 30 天</option>
+        </select>
+        <label class="rec-auto">
+            <input type="checkbox" id="recAuto" checked>
+            <span>自动刷新（3 秒）</span>
+        </label>
+        <button type="button" class="btn btn-tonal" id="recRefresh">
+            <span class="btn-text">刷新</span>
+        </button>
+        <span class="rec-updated" id="recUpdated">正在加载…</span>
+    </section>
+
+    <!-- KPI：窗口内的三个数量级（拉取 / 在飞 / 结果分布） -->
+    <section class="rec-kpi" id="recKpi" aria-label="概览">
+        <div class="rec-kpi-item">
+            <span class="rec-kpi-label">窗口内拉取</span>
+            <span class="rec-kpi-value" id="kpiFetch">—</span>
+            <span class="rec-kpi-sub" id="kpiFetchSub">本书 / 章节</span>
+        </div>
+        <div class="rec-kpi-item">
+            <span class="rec-kpi-label">正在审查</span>
+            <span class="rec-kpi-value" id="kpiRunning">—</span>
+            <span class="rec-kpi-sub">进行中的动作</span>
+        </div>
+        <div class="rec-kpi-item">
+            <span class="rec-kpi-label">判定结果</span>
+            <span class="rec-kpi-value" id="kpiResults">—</span>
+            <span class="rec-kpi-sub" id="kpiResultsSub">AI / 疑似 / 非 AI</span>
+        </div>
+    </section>
+
+    <!-- 1) 正在审查：内存态，只有真的在跑才有内容 -->
+    <section class="rec-block" aria-labelledby="recRunningTitle">
+        <h2 class="rec-block-title" id="recRunningTitle">
+            正在 AI 审查
+            <span class="rec-count" id="recRunningCount">0</span>
+        </h2>
+        <p class="rec-hint">判定是同步请求，这里显示的是当前在飞的动作；跑完会落到下面的「判定结果」。</p>
+        <div class="rec-running" id="recRunning">
+            <p class="rec-empty">当前没有进行中的审查</p>
+        </div>
+    </section>
+
+    <!-- 2) 正常拉取章节：官方前 10 章落库后的聚合视图 -->
+    <section class="rec-block" aria-labelledby="recFetchTitle">
+        <h2 class="rec-block-title" id="recFetchTitle">
+            正常拉取章节
+            <span class="rec-count" id="recFetchCount">0</span>
+        </h2>
+        <p class="rec-hint">只统计落进 <code>novel_chapter</code> 的官方可读区正文；第三方通道的深章不落库，所以不在这里。</p>
+        <table class="rec-table rec-table-fetch">
+            <thead>
+            <tr>
+                <th scope="col">书名</th>
+                <th scope="col">章节数</th>
+                <th scope="col">字数</th>
+                <th scope="col">最新章号</th>
+                <th scope="col">最近拉取</th>
+                <th scope="col">残留 PUA</th>
+            </tr>
+            </thead>
+            <tbody id="recFetchRows">
+            <tr><td colspan="6" class="rec-empty">—</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <!-- 3) 判定结果：append-only 流水，每次判定一行 -->
+    <section class="rec-block" aria-labelledby="recResultTitle">
+        <h2 class="rec-block-title" id="recResultTitle">
+            判定结果
+            <span class="rec-count" id="recResultCount">0</span>
+        </h2>
+        <p class="rec-hint">每轮判定一行（初筛 / 逐章 / 手点重跑分开记），同一本书换引擎重判不会覆盖这里的旧记录。</p>
+        <table class="rec-table rec-table-result">
+            <thead>
+            <tr>
+                <th scope="col">时间</th>
+                <th scope="col">书名</th>
+                <th scope="col">引擎 · 型号</th>
+                <th scope="col">结论</th>
+                <th scope="col">概率</th>
+                <th scope="col">章节</th>
+                <th scope="col">类型</th>
+                <th scope="col">理由</th>
+            </tr>
+            </thead>
+            <tbody id="recResultRows">
+            <tr><td colspan="8" class="rec-empty">—</td></tr>
+            </tbody>
+        </table>
+    </section>
+</main>
+</body>
+</html>

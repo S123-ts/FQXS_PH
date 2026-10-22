@@ -1,0 +1,233 @@
+/* ============================================================
+   css/ai-keys.css - 「AI 引擎密钥」设置面板
+   单独成文件：面板样式与主界面控件解耦，也避免和 components.css
+   里正在调整的工具栏布局互相影响。全部复用 .modal / .btn / .input 基类。
+   ============================================================ */
+
+/* 工具栏里这颗按钮比其它按钮低一档：它是配置入口，不是日常操作 */
+#aiKeyBtn {
+    opacity: 0.92;
+}
+
+/* 面板正文：三个引擎各一块 */
+.key-row {
+    padding: 12px 0;
+    border-bottom: 1px dashed var(--border);
+}
+.key-row:last-child {
+    border-bottom: none;
+}
+
+.key-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+/* 未配置的引擎默认收起：只留标题行，面板打开时先看到已经配好的那些 */
+.key-row.collapsed {
+    padding: 10px 0;
+}
+.key-row.collapsed .key-head {
+    margin-bottom: 0;
+}
+.key-row.collapsed .key-body {
+    display: none;
+}
+.key-expand {
+    flex: 0 0 auto;
+    padding: 1px 9px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-full);
+    background: var(--surface);
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+.key-expand:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.key-name {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text-1);
+}
+
+/* 状态徽章：已配置=绿，未配置=灰，来源 env 额外标一下 */
+.key-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    border-radius: var(--r-full);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+    background: var(--surface-3);
+    color: var(--text-3);
+    border: 1px solid var(--border);
+}
+.key-status.ok {
+    background: #eef7ee;
+    border-color: #cbe5cb;
+    color: #1a7f37;
+}
+.key-status.env {
+    background: #eef4ff;
+    border-color: #cddffb;
+    color: #1a4f9c;
+}
+
+.key-link {
+    margin-left: auto;
+    font-size: var(--fs-xs);
+    color: var(--accent);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.key-link:hover {
+    text-decoration: underline;
+}
+
+.key-tip {
+    margin: 0 0 8px;
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+    line-height: 1.6;
+}
+
+.key-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.key-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: var(--fs-xs);
+}
+
+/* 模型选择行：与 Key 输入行同一节奏，但视觉上弱一档（次级配置） */
+.key-model-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+.key-model-label {
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+    white-space: nowrap;
+}
+.key-model {
+    min-width: 260px;
+    max-width: 100%;
+    font-size: var(--fs-xs);
+}
+.key-model-hint {
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+}
+
+/* 额度行：真实余额、规则说明、未配置、出错四种形态 */
+.key-quota {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 6px 10px;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    font-size: var(--fs-xs);
+    line-height: 1.6;
+    color: var(--text-2);
+}
+.quota-ok {
+    font-weight: 600;
+    color: var(--text-1);
+    font-variant-numeric: tabular-nums;
+}
+.quota-sub,
+.quota-muted {
+    color: var(--text-3);
+}
+.quota-warn {
+    color: var(--danger);
+}
+/* 免费档 / 付费档：一眼看出当前选型会不会花钱 */
+.quota-free,
+.quota-paid {
+    flex: 0 0 auto;
+    padding: 1px 7px;
+    border-radius: var(--r-full);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    border: 1px solid transparent;
+}
+.quota-free {
+    background: #eef7ee;
+    border-color: #cbe5cb;
+    color: #1a7f37;
+}
+.quota-paid {
+    background: #fdecea;
+    border-color: #f5c2bd;
+    color: #b3261e;
+}
+.quota-link {
+    margin-left: auto;
+    color: var(--accent);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.quota-link:hover {
+    text-decoration: underline;
+}
+
+/* 说明区：密钥去向与安全边界，用户最关心「会不会被传到 GitHub」 */
+.key-note {
+    margin: 12px 0 0;
+    padding: 10px 12px;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    font-size: var(--fs-xs);
+    color: var(--text-2);
+    line-height: 1.7;
+}
+.key-note code {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--surface-3);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.key-loading {
+    padding: 24px 0;
+    text-align: center;
+    color: var(--text-3);
+    font-size: var(--fs-sm);
+}
+
+/* 窄屏：输入框与清除按钮换行，按钮不压输入框 */
+@media (max-width: 520px) {
+    .key-input-row {
+        flex-wrap: wrap;
+    }
+    .key-input {
+        flex-basis: 100%;
+    }
+    .key-model {
+        min-width: 0;
+        width: 100%;
+    }
+}

@@ -1,0 +1,421 @@
+/* ============================================================
+   css/theme.css - 响应式布局 + 动效偏好
+   桌面优先，向下适配到手机。
+   ============================================================ */
+
+/* ---------- 平板 / 小屏桌面 ---------- */
+@media (max-width: 768px) {
+    .container {
+        padding: var(--sp-3) var(--sp-3) 32px;
+    }
+
+    /* 分类导航保持横向滚动，收窄内边距 */
+    .category-nav {
+        padding: 8px 12px;
+    }
+    .nav-btn {
+        padding: 5px 12px;
+        font-size: var(--fs-xs);
+    }
+
+    /* 统计栏在窄屏下收紧间距并保持居中 */
+    .stats {
+        gap: var(--sp-2);
+    }
+    .stats .info {
+        justify-content: center;
+    }
+
+    /* 手机折叠摘要条：一行显示「榜单 + 当前筛选」，点开才铺开完整控制区 */
+    .chrome-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--r-md);
+        background: var(--surface-2);
+        color: var(--text-2);
+        font-size: var(--fs-sm);
+        text-align: left;
+        cursor: pointer;
+    }
+    .chrome-summary-text {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .chrome-summary-action {
+        flex-shrink: 0;
+        color: var(--accent-hover);
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    /* 折叠态：只留摘要条并吸在导航下方；展开态照常滚动，不挡内容 */
+    .stats.chrome-collapsed {
+        position: sticky;
+        top: var(--nav-h, 47px);
+        z-index: calc(var(--z-nav) - 1);
+        padding: 8px 10px;
+        box-shadow: var(--shadow-md);
+    }
+    .stats.chrome-collapsed .stats-body {
+        display: none;
+    }
+    /* 两层控制行整体居中，避免窄屏出现贴左的“半截行” */
+    .ctl-row {
+        justify-content: center;
+    }
+
+    /* 筛选栏换行：多选下拉独占一行 */
+    .filter-bar {
+        gap: var(--sp-2);
+        padding: 10px var(--sp-3);
+    }
+    .filter-dropdown-group {
+        flex: 1 1 100%;
+    }
+    .dropdown-toggle {
+        width: 100%;
+    }
+    .dropdown-menu {
+        min-width: 160px;
+        max-height: 220px;
+    }
+
+    /* 卡片收紧、封面缩小 */
+    .book-item {
+        padding: var(--sp-3) 14px;
+        gap: 10px;
+    }
+    .book-item .rank {
+        width: 32px;
+        height: 32px;
+        min-width: 32px;
+        font-size: 18px;
+    }
+    .book-item .cover {
+        width: 48px;
+        height: 66px;
+    }
+    .book-item .cover .cover-ph {
+        font-size: 20px;
+    }
+    .book-item .title {
+        font-size: 15px;
+    }
+    .book-item .info-row {
+        gap: 6px;
+        font-size: var(--fs-xs);
+    }
+    .book-item .desc {
+        font-size: var(--fs-xs);
+        -webkit-line-clamp: 2;
+    }
+    .book-item .meta {
+        font-size: 11px;
+    }
+
+    /* toast 顶通栏 */
+    .toast-host {
+        top: var(--sp-3);
+        left: var(--sp-4);
+        right: var(--sp-4);
+        align-items: stretch;
+        max-width: none;
+    }
+    .toast {
+        min-width: 0;
+    }
+
+    /* 设置面板贴底弹出，拇指更好够到 */
+    .modal-mask {
+        padding: var(--sp-2);
+        align-items: flex-end;
+    }
+    .modal {
+        max-height: 86vh;
+    }
+}
+
+/* ---------- 手机 ---------- */
+@media (max-width: 480px) {
+    /* 组间保留呼吸感，组内收紧，避免整块控件被压成一团 */
+    .stats .controls {
+        gap: var(--sp-2);
+    }
+    .ctl-group {
+        gap: 6px;
+    }
+    .select,
+    .input {
+        padding: 5px 8px;
+    }
+    /* 窄屏下连体的数字框再收一档，保证整组不被挤出边界 */
+    #customPageSize,
+    .ctl-ai .combo-aux {
+        width: 58px;
+    }
+    /* 手机端动作层排成两列网格：刷新 / 一键获取并排 */
+    .ctl-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+    }
+    .ctl-actions > .btn {
+        justify-content: center;
+    }
+    /* AI 工具簇在窄屏独占整行：里面是 AI 判定组（已折成 2×2）+ API 密钥 */
+    .ctl-actions > .ctl-tail {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        width: 100%;
+    }
+    /* AI 判定组占满整行；「审查记录 / API 密钥」落在下一行两列，与上方网格同宽 */
+    .ctl-tail > .ctl-ai {
+        grid-column: 1 / -1;
+    }
+    .ctl-tail > .btn {
+        justify-content: center;
+        width: 100%;
+    }
+    /* AI 工具组在手机上改成 2×2 网格：上行「标签 + 下拉」，下行两颗按钮各占一列。
+       靠 flex-wrap 折行会让「校验本页」留在第一行、「AI 初筛」掉到第二行，参差不齐 */
+    .ctl-ai {
+        flex: 1 1 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: center;
+        gap: 6px;
+        padding: 8px;
+    }
+    .ctl-ai > .select {
+        grid-column: 2;
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+    }
+    .ctl-ai > .btn {
+        justify-content: center;
+    }
+    /* 取样连体框占满第二列；内层下拉允许压缩，否则 420px 下会顶出组边界 */
+    .ctl-ai > .ctl-combo {
+        width: 100%;
+        min-width: 0;
+    }
+    .ctl-ai > .ctl-combo > .select {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+    }
+    /* 「重判」独占一行：它是修饰项，和两颗主按钮挤在一格会点错。
+       独占后「校验本页 / AI 初筛」正好落在下一行两列，不需要再让 AI 初筛跨整行 */
+    .ctl-ai > .ctl-check {
+        grid-column: 1 / -1;
+        justify-self: center;
+    }
+    .ctl-actions > .btn-ghost {
+        margin-left: 0;
+    }
+    .book-item .cover {
+        width: 42px;
+        height: 58px;
+    }
+    .book-item .rank {
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        font-size: 16px;
+    }
+    .book-item .info-row .chip {
+        font-size: 11px;
+        padding: 1px 7px;
+    }
+    .filter-bar {
+        gap: 6px;
+    }
+    /* 新控件在极窄屏收紧，控制栏能一行放下更多操作 */
+    .ctl-label {
+        font-size: var(--fs-xs);
+    }
+    .rank-type-option .rank-type-pill {
+        padding: 3px 9px;
+    }
+    .config-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .modal-header,
+    .modal-hint,
+    .modal-body,
+    .modal-footer {
+        padding-left: var(--sp-3);
+        padding-right: var(--sp-3);
+    }
+
+    /* ---------- 控制区第一层：flex 居中 → 2 列网格 ----------
+       原来靠 flex-wrap + justify-content:center 换行，每行元素长度不同，于是行行不齐：
+       「每页显示」和「展示分类」挤在半行、两个 ghost 按钮居中吊在下一行，左右边缘全对不上。
+       改成显式网格后每格宽度可预期、左右对齐，纵向也更省。 */
+    .ctl-row-primary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        align-items: stretch;
+        width: 100%;
+    }
+    /* 榜单胶囊独占整行：前缀 + 两颗胶囊在 390px 下正好占满，拆两行反而碎 */
+    .ctl-row-primary > .ctl-rank {
+        grid-column: 1 / -1;
+        justify-content: center;
+    }
+    /* 「每页显示」与「展示分类」各占一列；标签在上、控件占满下方，
+       两者底边对齐（展示分类那颗按钮用 flex-end 压到底） */
+    .ctl-row-primary > .ctl-pagesize,
+    .ctl-row-primary > .ctl-view {
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-end;
+        gap: 4px;
+        min-width: 0;
+    }
+    .ctl-row-primary > .ctl-pagesize > label {
+        font-size: var(--fs-xs);
+    }
+    .ctl-row-primary .ctl-combo {
+        width: 100%;
+        min-width: 0;
+    }
+    .ctl-row-primary .ctl-combo > .select,
+    .ctl-row-primary .ctl-combo > .input {
+        width: 100%;
+        min-width: 0;
+    }
+    /* 直接挂在行上的按钮（番茄排行榜 / 退出）也各占一列并铺满 */
+    .ctl-row-primary > .btn,
+    .ctl-row-primary > .ctl-view > .btn {
+        width: 100%;
+        justify-content: center;
+        margin-left: 0;
+    }
+
+    /* ---------- 筛选栏同样改成 2 列 ----------
+       分类下拉独占整行；字数 / 状态并排；「只看已拉黑」单独一行靠左。
+       标签压在控件上方，避免「字数：」和下拉在窄格里互相挤。 */
+    .filter-bar {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+    .filter-bar > .filter-dropdown-group {
+        grid-column: 1 / -1;
+    }
+    .filter-bar > .filter-group {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        min-width: 0;
+    }
+    .filter-bar > .filter-group > label {
+        font-size: var(--fs-xs);
+    }
+    .filter-bar > .filter-group > .select {
+        width: 100%;
+        min-width: 0;
+    }
+    .filter-bar > .filter-group:last-child {
+        grid-column: 1 / -1;
+        align-items: flex-start;
+    }
+
+    /* 批量条：三颗按钮改成 3 列网格铺满。
+       原来 .batch-actions 是 inline-flex + margin-left:auto，窄屏折行后按钮悬在中间，
+       与上面整块网格的左右边缘对不齐。 */
+    .batch-bar {
+        gap: 8px;
+    }
+    .batch-actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        width: 100%;
+        margin-left: 0;
+    }
+    .batch-actions > .btn {
+        justify-content: center;
+        width: 100%;
+        padding-left: 4px;
+        padding-right: 4px;
+    }
+
+    /* ---------- 触摸目标与 iOS 缩放 ----------
+       实测（390px）：勾选框 15×15、行内按钮 23px 高、批量条 28px——手指点不准；
+       input/select 字号 13–14px，iOS 聚焦时会自动放大整个页面（≥16px 才不放大）。 */
+    /* 勾选框 15px 手指点不准，放大到 20px。
+       选择器必须带 .book-item：components.css 里同名的 .row-check 权重相同，
+       靠加载顺序分胜负太脆，直接提一档 */
+    .book-item > .row-check {
+        width: 20px;
+        height: 20px;
+    }
+    /* 行内按钮（徽章 / 详情 / 逐章校验 / 拉黑）抬到 30px：
+       44px 是理想值，但这一簇在手机上本来就要折成 3 行，再加高会把卡片撑得更长 */
+    .book-item .title-actions .ai-badge,
+    .book-item .title-actions .zq-btn,
+    .book-item .title-actions .block-btn,
+    .book-item .title-actions .ai-detail-btn {
+        min-height: 30px;
+        display: inline-flex;
+        align-items: center;
+    }
+    .btn-sm,
+    .batch-actions > .btn {
+        min-height: 32px;
+    }
+    /* 表单控件统一 16px：低于这个值 iOS 会在聚焦时放大页面 */
+    .select,
+    .input,
+    .ctl-ai > .select {
+        font-size: 16px;
+    }
+}
+
+/* ---------- 桌面吸顶工具条 ----------
+   统计卡吸在导航下方；越过整张卡后收起 KPI 与筛选行，只留两层控件（约 130px）。
+   切榜单、换引擎、校验本页不必再滚回顶部。移动端沿用折叠摘要条，不启用本段；
+   1000px 附近控制栏会折成三行，吸顶占高太多，因此从 1100px 起才启用 */
+@media (min-width: 1100px) {
+    .stats {
+        position: sticky;
+        top: var(--nav-h, 47px);
+        z-index: calc(var(--z-nav) - 1);
+    }
+    .stats.is-pinned {
+        padding: var(--sp-2) var(--sp-4);
+        box-shadow: var(--shadow-md);
+    }
+    .stats.is-pinned .info,
+    .stats.is-pinned .filter-bar {
+        display: none;
+    }
+}
+/* 吸顶哨兵：0 高，放在统计卡之前，卡片自身收起/展开都不影响它 */
+.stats-pin-sentinel {
+    height: 0;
+}
+
+/* ---------- 尊重减少动效偏好：关掉装饰动画 ---------- */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>模型调用失败日志 · 番茄小说排行榜</title>
+    <link rel="stylesheet" href="/css/base.css">
+    <link rel="stylesheet" href="/css/components.css">
+    <link rel="stylesheet" href="/css/theme.css">
+    <link rel="stylesheet" href="/css/faults.css">
+    <script type="module" src="/js/faults.js"></script>
+</head>
+<body>
+<!-- ===== 顶部：回榜单 + 查询条件（CSP 是 script-src 'self'，脚本与样式都只能走外部文件） ===== -->
+<header class="fault-head">
+    <h1 class="fault-title">模型调用失败日志</h1>
+    <a class="btn btn-ghost" href="/records">📜 审查记录</a>
+    <a class="btn btn-ghost" href="/">← 回榜单</a>
+</header>
+
+<main class="fault-main">
+    <section class="fault-toolbar" aria-label="查询条件">
+        <label class="fault-label" for="faultWindow">时间窗口</label>
+        <select class="select" id="faultWindow">
+            <option value="24">最近 24 小时</option>
+            <option value="72" selected>最近 3 天</option>
+            <option value="168">最近 7 天</option>
+            <option value="720">最近 30 天</option>
+        </select>
+        <label class="fault-label" for="faultEngine">引擎</label>
+        <select class="select" id="faultEngine">
+            <option value="">全部引擎</option>
+        </select>
+        <button type="button" class="btn btn-tonal" id="faultRefresh">
+            <span class="btn-text">刷新</span>
+        </button>
+    </section>
+
+    <!-- 停用中的引擎单独一块：这是"多次不行就停用"的可见结果，也是解除入口 -->
+    <section class="fault-suspended" id="faultSuspended" aria-live="polite"></section>
+
+    <p class="fault-summary" id="faultSummary">正在加载…</p>
+
+    <table class="fault-table">
+        <thead>
+        <tr>
+            <th scope="col">时间</th>
+            <th scope="col">引擎</th>
+            <th scope="col">型号</th>
+            <th scope="col">类型</th>
+            <th scope="col">HTTP</th>
+            <th scope="col">原因</th>
+            <th scope="col">上游返回片段</th>
+            <th scope="col">当时判的书</th>
+        </tr>
+        </thead>
+        <tbody id="faultRows">
+        <tr><td colspan="8" class="fault-empty">—</td></tr>
+        </tbody>
+    </table>
+</main>
+</body>
+</html>

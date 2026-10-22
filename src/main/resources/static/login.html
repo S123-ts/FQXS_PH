@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>登录 · 番茄小说排行榜</title>
+    <!-- 只引 base.css（设计令牌 + 明暗主题）与 login.css；登录页刻意不复用主界面样式，
+         免得「未登录也要拉整套 components.css」 -->
+    <link rel="stylesheet" href="/css/base.css">
+    <link rel="stylesheet" href="/css/login.css">
+</head>
+<body class="login-body">
+
+<main class="login-card">
+    <header class="login-head">
+        <span class="login-mark" aria-hidden="true">番</span>
+        <span class="login-heading">
+            <h1 class="login-title">番茄小说排行榜</h1>
+            <p class="login-sub">FQXS · AI 判定工作台</p>
+        </span>
+    </header>
+
+    <!-- form 只负责「回车提交」与浏览器的口令管理器识别；提交由 login.js 接管走 fetch。
+         CSP 是 form-action 'none'，原生提交会被浏览器拦掉，这里必须 preventDefault -->
+    <form class="login-form" id="loginForm" novalidate>
+        <div class="login-field">
+            <label class="login-label" for="username">账号</label>
+            <input class="login-input" id="username" name="username" type="text"
+                   autocomplete="username" spellcheck="false" autocapitalize="off" required autofocus>
+        </div>
+
+        <div class="login-field">
+            <label class="login-label" for="password">口令</label>
+            <div class="login-pwd">
+                <input class="login-input login-input-pwd" id="password" name="password" type="password"
+                       autocomplete="current-password" required>
+                <button type="button" class="login-eye" id="togglePassword"
+                        aria-label="显示口令" aria-pressed="false">显示</button>
+            </div>
+        </div>
+
+        <!-- role=alert + aria-live：读屏器会念出失败原因，不必靠视觉找红字 -->
+        <p class="login-error" id="loginError" role="alert" aria-live="polite" hidden></p>
+
+        <button type="submit" class="login-submit" id="loginSubmit">登录</button>
+    </form>
+
+    <p class="login-foot">
+        会话 2 小时无操作自动失效 · 同一来源连续 5 次失败锁定 5 分钟
+    </p>
+</main>
+
+<script type="module" src="/js/login.js"></script>
+</body>
+</html>

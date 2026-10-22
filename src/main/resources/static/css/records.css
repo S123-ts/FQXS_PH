@@ -1,0 +1,380 @@
+/* ============================================================
+   css/records.css - 审查记录页（章节拉取 / 正在审查 / 判定结果）
+   独立静态页，与 faults.css 同一套写法：只吃 base.css 的设计令牌，
+   明暗主题跟随系统，不写死色值（缺变量时宁可退化）。
+   ============================================================ */
+
+.rec-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    flex-wrap: wrap;
+}
+
+.rec-title {
+    margin: 0;
+    font-size: 18px;
+}
+
+/* 两个外链贴右：主标题左、动作右，与失败日志页一致 */
+.rec-head-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.rec-main {
+    padding: 0 16px 40px;
+    max-width: 1200px;
+}
+
+.rec-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 0 14px;
+    font-size: 13px;
+}
+
+.rec-toolbar label {
+    opacity: .78;
+}
+
+.rec-auto {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.rec-updated {
+    margin-left: auto;
+    font-size: 12px;
+    opacity: .6;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- KPI ---------- */
+
+.rec-kpi {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.rec-kpi-item {
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    padding: 10px 12px;
+}
+
+.rec-kpi-label {
+    display: block;
+    font-size: 12px;
+    opacity: .7;
+    margin-bottom: 4px;
+}
+
+.rec-kpi-value {
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+}
+
+.rec-kpi-sub {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    opacity: .66;
+}
+
+/* ---------- 分区 ---------- */
+
+.rec-block {
+    margin-bottom: 20px;
+}
+
+.rec-block-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 8px;
+    font-size: 15px;
+}
+
+.rec-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: var(--r-full);
+    background: var(--surface-3);
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.rec-hint {
+    margin: 0 0 8px;
+    font-size: 12px;
+    opacity: .6;
+}
+
+/* ---------- 正在审查 ---------- */
+
+.rec-running {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.rec-run-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 9px 12px;
+    border: 1px solid var(--accent);
+    border-radius: var(--r-md);
+    background: var(--accent-soft);
+    font-size: 13px;
+}
+
+/* 呼吸点：只有"在飞"才出现，视觉上区分于已完成的静态行 */
+.rec-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex: 0 0 auto;
+    animation: rec-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: .35; transform: scale(.8); }
+}
+
+.rec-run-kind {
+    font-weight: 600;
+}
+
+.rec-run-book {
+    max-width: 380px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rec-run-meta {
+    margin-left: auto;
+    font-size: 12px;
+    opacity: .72;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 表格 ---------- */
+
+.rec-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    table-layout: fixed;
+}
+
+.rec-table th,
+.rec-table td {
+    text-align: left;
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    overflow-wrap: anywhere;
+}
+
+.rec-table th {
+    font-weight: 600;
+    opacity: .8;
+    white-space: nowrap;
+}
+
+.rec-table td.num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* 列宽必须显式给：table-layout 是 fixed，不给就按内容均分，
+   型号（ernie-4.5-turbo-32k#verify）与理由会被挤成竖排 */
+.rec-table-fetch th:nth-child(1), .rec-table-fetch td:nth-child(1) { width: 38%; }
+.rec-table-fetch th:nth-child(2), .rec-table-fetch td:nth-child(2) { width: 10%; }
+.rec-table-fetch th:nth-child(3), .rec-table-fetch td:nth-child(3) { width: 10%; }
+.rec-table-fetch th:nth-child(4), .rec-table-fetch td:nth-child(4) { width: 11%; }
+.rec-table-fetch th:nth-child(5), .rec-table-fetch td:nth-child(5) { width: 20%; }
+.rec-table-fetch th:nth-child(6), .rec-table-fetch td:nth-child(6) { width: 11%; }
+
+.rec-table-result th:nth-child(1), .rec-table-result td:nth-child(1) { width: 15%; }
+.rec-table-result th:nth-child(2), .rec-table-result td:nth-child(2) { width: 21%; }
+.rec-table-result th:nth-child(3), .rec-table-result td:nth-child(3) { width: 18%; }
+.rec-table-result th:nth-child(4), .rec-table-result td:nth-child(4) { width: 7%; }
+.rec-table-result th:nth-child(5), .rec-table-result td:nth-child(5) { width: 6%; }
+/* 章节列从 6% 放到 9%：它要装「第 990–999 章」甚至「第 990–994、995–999 章」，
+   6% 时 nowrap 的文本会溢出单元格、直接盖住右边「类型」列（实测截图里
+   「第 990-999章」压在「整本初筛」上）。类型列让 1%，理由列让 2% 补回来 */
+.rec-table-result th:nth-child(6), .rec-table-result td:nth-child(6) { width: 9%; }
+.rec-table-result th:nth-child(7), .rec-table-result td:nth-child(7) { width: 8%; }
+.rec-table-result th:nth-child(8), .rec-table-result td:nth-child(8) { width: 16%; }
+
+/* 兜底：列宽再变窄也只换行，不许溢出到邻列。
+   这里刻意不用省略号：「第 990–994、995–999 章」被截成「第 990–994、99…」等于没显示，
+   而这一列存在的意义就是让人看清查到第几章到第几章。div 而不是 td——
+   overflow/white-space 挂在 table-cell 上不生效（同 .rec-reason） */
+.rec-chapter {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.rec-time {
+    white-space: nowrap;
+    opacity: .78;
+    font-variant-numeric: tabular-nums;
+}
+
+.rec-book {
+    max-width: 260px;
+}
+
+.rec-book-id {
+    display: block;
+    font-size: 11px;
+    opacity: .5;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.rec-reason {
+    opacity: .86;
+    /* 两行封顶：理由长的能写 200 字，不裁的话一行就把表格撑成半屏高。
+       完整内容在 title 上，鼠标停一下就看得见 */
+    max-height: 3.1em;
+    overflow: hidden;
+}
+
+.rec-empty {
+    margin: 0;
+    padding: 14px 0;
+    text-align: center;
+    font-size: 13px;
+    opacity: .6;
+}
+
+/* ---------- 结论徽章：与主界面的 AI 徽章同语义（红=AI、黄=疑似、绿=非 AI） ---------- */
+
+.rec-flag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: var(--r-full);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.rec-flag-ai {
+    background: var(--accent-soft-2);
+    color: var(--danger);
+}
+
+.rec-flag-suspect {
+    background: var(--warn-soft);
+    color: var(--warn);
+}
+
+.rec-flag-human {
+    background: var(--success-soft);
+    color: var(--success);
+}
+
+.rec-flag-progress {
+    background: var(--surface-3);
+    color: var(--text-2);
+}
+
+/* 进度条：逐章校验的 k/10 */
+.rec-progress {
+    display: inline-block;
+    min-width: 42px;
+    font-variant-numeric: tabular-nums;
+    opacity: .8;
+}
+
+/* ---------- 窄屏：只留主要列 ---------- */
+
+@media (max-width: 760px) {
+    .rec-table {
+        font-size: 12px;
+    }
+
+    /* 表头 nowrap + fixed 布局 = 文字溢出单元格、整页横向滚动条（实测 docW 433 > 420）。
+       窄屏一律允许表头与时间折行，列宽交给上面的百分比 */
+    .rec-table th,
+    .rec-time {
+        white-space: normal;
+    }
+
+    /* 结果表：隐藏「引擎·型号」「已查章」「理由」，留时间/书名/结论/概率/类型 */
+    .rec-table-result th:nth-child(3),
+    .rec-table-result td:nth-child(3),
+    .rec-table-result th:nth-child(6),
+    .rec-table-result td:nth-child(6),
+    .rec-table-result th:nth-child(8),
+    .rec-table-result td:nth-child(8) {
+        display: none;
+    }
+
+    /* 拉取表：隐藏「字数」与「残留 PUA」 */
+    .rec-table-fetch th:nth-child(3),
+    .rec-table-fetch td:nth-child(3),
+    .rec-table-fetch th:nth-child(6),
+    .rec-table-fetch td:nth-child(6) {
+        display: none;
+    }
+
+    /* 隐藏列之后剩下的百分比会按比例重算，算出来的列宽不适合窄屏（「逐章校验」被拆成两行），
+       这里按可见列重新分配一次 */
+    .rec-table-fetch th:nth-child(1), .rec-table-fetch td:nth-child(1) { width: 44%; }
+    .rec-table-fetch th:nth-child(2), .rec-table-fetch td:nth-child(2) { width: 16%; }
+    .rec-table-fetch th:nth-child(4), .rec-table-fetch td:nth-child(4) { width: 16%; }
+    .rec-table-fetch th:nth-child(5), .rec-table-fetch td:nth-child(5) { width: 24%; }
+
+    .rec-table-result th:nth-child(1), .rec-table-result td:nth-child(1) { width: 26%; }
+    .rec-table-result th:nth-child(2), .rec-table-result td:nth-child(2) { width: 30%; }
+    .rec-table-result th:nth-child(4), .rec-table-result td:nth-child(4) { width: 14%; }
+    .rec-table-result th:nth-child(5), .rec-table-result td:nth-child(5) { width: 10%; }
+    .rec-table-result th:nth-child(7), .rec-table-result td:nth-child(7) { width: 20%; }
+
+    /* 窄屏没有「贴右」的余地：已用时挪到下一行 */
+    .rec-run-book {
+        max-width: 100%;
+    }
+
+    .rec-run-meta {
+        margin-left: 0;
+    }
+
+    .rec-updated {
+        margin-left: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rec-dot {
+        animation: none;
+    }
+}
