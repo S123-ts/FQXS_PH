@@ -193,6 +193,8 @@ export function updateChromeSummary() {
     ];
     const blocked = /** @type {HTMLInputElement} */ (document.getElementById('filterBlocked'));
     if (blocked && blocked.checked) parts.push('只看已拉黑');
+    const watched = /** @type {HTMLInputElement} */ (document.getElementById('filterWatched'));
+    if (watched && watched.checked) parts.push('只看关注');
     text.textContent = parts.join(' · ');
 }
 
@@ -274,13 +276,47 @@ export function initChromeUi() {
 
 /* ---------- #bookList 的各形态 ---------- */
 
+/* ---------- 列表切换过渡 ----------
+   加载中不再清空已有列表：切分类最坏要等约 47 秒抓上游，清空等于对着空屏发呆。
+   保留旧内容、罩一层半透明幕布（见 components.css 的 .is-loading）等新数据。
+   请求可能几十毫秒就回来，幕布延迟 120ms 才显示——快加载不闪，慢加载有反馈。 */
+const VEIL_DELAY_MS = 120;
+let veilTimer = 0;
+
 export function renderLoading() {
-    document.getElementById('bookList').innerHTML = `
+    const listEl = document.getElementById('bookList');
+    if (!listEl) return;
+    clearTimeout(veilTimer);
+    veilTimer = 0;
+    if (listEl.querySelector('.book-item, .empty, .db-hint')) {
+        // 已有内容：走幕布方案，节点原样留着
+        veilTimer = window.setTimeout(() => {
+            veilTimer = 0;
+            listEl.classList.add('is-loading');
+        }, VEIL_DELAY_MS);
+        return;
+    }
+    // 首屏/空态：没有可保留的内容，渲染静态转圈
+    listEl.classList.remove('is-loading');
+    listEl.innerHTML = `
         <div class="loading">
             <div class="spinner"></div>
             <p>加载中...</p>
         </div>
     `;
+}
+
+/* 新内容入场渐显：整页 innerHTML 重建后重挂 .is-entering，CSS 的行间阶梯动画
+   才能重新播放。幕布（is-loading）一并摘除——淡出与内容渐显叠在 0.18s 内完成，
+   观感是「旧页褪去、新页浮出」，而不是两帧硬切。 */
+function enterList(listEl) {
+    clearTimeout(veilTimer);
+    veilTimer = 0;
+    listEl.classList.remove('is-loading', 'is-entering');
+    void listEl.offsetWidth; // 强制回流：让移除的类先生效，动画才能从头播放
+    listEl.classList.add('is-entering');
+    // 最长动画 = 8 行阶梯（0.28s）+ 0.3s；到点摘类，避免残留类影响后续增量更新
+    window.setTimeout(() => listEl.classList.remove('is-entering'), 700);
 }
 
 function renderEmpty(icon, title, detail) {
@@ -295,7 +331,10 @@ function renderEmpty(icon, title, detail) {
 
 /* 空态/失败态整体替换列表内容 */
 export function renderEmptyState(icon, title, detail) {
-    document.getElementById('bookList').innerHTML = renderEmpty(icon, title, detail);
+    const listEl = document.getElementById('bookList');
+    if (!listEl) return;
+    listEl.innerHTML = renderEmpty(icon, title, detail);
+    enterList(listEl);
 }
 
 /* 封面直链是带签名的 CDN 地址，过期后 403；加载失败由 events.js 捕获阶段的
@@ -313,16 +352,24 @@ function renderCover(book) {
 }
 
 function renderChips(book) {
+    const update = book.updateTime ? String(book.updateTime) : '';
+    /* 更新时间在手机上换成不带年份的短式：信息不丢，但「10-22 06:00」能少折一行。
+       完整文案留在 .chip-full 里给桌面，窄屏用 theme.css 切到 .chip-short */
+    const updateHtml = update
+        ? `<span class="chip chip-update"><i>🕐</i>`
+            + `<span class="chip-full">${escapeText('更新于 ' + update)}</span>`
+            + `<span class="chip-short">${escapeText(update.replace(/^\d{4}-/, ''))}</span></span>`
+        : '';
     return [
         /* 数值与单位之间不留空格：中文语境下空格会把“196.4万”和“人在读”拉成两段，
-           看上去像两条独立信息。字数同理，补上单位与阅读数保持同一句式。 */
-        ['📖', book.readCount ? book.readCount + '人在读' : ''],
-        ['📝', book.wordCount ? book.wordCount + '字' : ''],
-        ['🏷️', book.categoryName || ''],
-        ['🕐', book.updateTime ? '更新于 ' + book.updateTime : '']
+           看上去像两条独立信息。字数同理，补上单位与阅读数保持同一句式。
+           每类补一个 modifier：手机端要按语义挑重点（见 theme.css 的窄屏块） */
+        ['📖', book.readCount ? book.readCount + '人在读' : '', 'chip-read'],
+        ['📝', book.wordCount ? book.wordCount + '字' : '', 'chip-word'],
+        ['🏷️', book.categoryName || '', 'chip-cat']
     ].filter(item => item[1])
-        .map(item => `<span class="chip"><i>${item[0]}</i>${escapeText(item[1])}</span>`)
-        .join('');
+        .map(item => `<span class="chip ${item[2]}"><i>${item[0]}</i>${escapeText(item[1])}</span>`)
+        .join('') + updateHtml;
 }
 
 /* 引擎展示名与 AI 率格式：徽章与详情弹窗共用同一套，
@@ -491,6 +538,7 @@ export function renderBooks(data) {
     }
 
     const blockedMode = state.currentCategory === 'ALL' && state.blockedView;
+    const watchedMode = state.currentCategory === 'ALL' && state.watchedView;
     /* 多选只在「全部」视图出现：分类视图的行没有拉黑按钮，批量操作无从谈起 */
     /* 勾选框在所有视图都可用：2026-10-22 起「校验选中」是全局动作，
        只在「全部」视图给方框会让分类视图里的这个按钮永远点不动。
@@ -499,6 +547,11 @@ export function renderBooks(data) {
     if (novels.length === 0) {
         if (blockedMode) {
             renderEmptyState('🚫', '没有被拉黑的书', '取消勾选“只看已拉黑”即可回到正常列表');
+            syncBatchBar();
+            return;
+        }
+        if (watchedMode) {
+            renderEmptyState('⭐', '还没有关注的书', '在书行内点「关注」，之后就能在这里集中查看');
             syncBatchBar();
             return;
         }
@@ -554,8 +607,8 @@ export function renderBooks(data) {
         return `
             <div class="book-item"${bookId ? ` data-book-id="${escapeAttr(bookId)}"` : ''}>
                 ${selectable && bookId
-                    ? `<input type="checkbox" class="row-check" data-book-id="${escapeAttr(bookId)}"
-                              aria-label="选择《${escapeAttr(book.title || '未知书名')}》以批量操作">`
+                    ? `<label class="row-check-hit"><input type="checkbox" class="row-check" data-book-id="${escapeAttr(bookId)}"
+                              aria-label="选择《${escapeAttr(book.title || '未知书名')}》以批量操作"></label>`
                     : ''}
                 <div class="${rankClass}" title="${escapeAttr(rankTitle)}">${rank}</div>
                 ${renderCover(book)}
@@ -578,6 +631,7 @@ export function renderBooks(data) {
             </div>
         `;
     }).join('') + renderPager(pages);
+    enterList(listEl);
     syncBatchBar();
 }
 
@@ -607,6 +661,9 @@ export function syncBatchBar() {
     const bar = document.getElementById('batchBar');
     if (!bar) return;
     bar.hidden = visible.size === 0;
+    /* 手机端只在真的选中后浮出批量条；桌面由上面的 hidden 控制（未选中也不显示）。
+       has-selection 只服务窄屏块，不靠 JS 判断视口宽度 */
+    bar.classList.toggle('has-selection', state.selection.size > 0);
     /* 「校验选中」按钮跟着选中数走：没人选就禁用（点不动比点了没反应清楚），
        数量放进独立的小徽标而不是按钮文字——执行中 setBtnState 会改写 .btn-text，
        把数量拼在文字里会在校验中途消失 */
@@ -648,19 +705,52 @@ export function setBatchProgress(done, total) {
     }
 }
 
-/* 行内右侧操作簇（AI 徽章 + 详情 + 逐章校验按钮 + 拉黑按钮）。
+/* 行内「更多」菜单：详情与逐章校验收进这里。
+   为什么收：3 个引擎时行内会摆 8–9 颗控件（徽章×N + 详情 + 校验×N + 关注 + 拉黑），
+   标题被挤成两行、每一行的“校验”横坐标都不一样，连点几本要重新找鼠标位置。
+   徽章必须留在外面——它是结论，引擎之间的分歧要能一眼看到；关注/拉黑也留在外面，
+   它们是对这本书的标记动作，不该藏进菜单。 */
+function renderMoreMenu(book) {
+    const detailHtml = renderAiDetailButton(book);
+    const verifyHtml = renderVerifyButtons(book);
+    if (!detailHtml && !verifyHtml) return '';
+    return `<span class="row-more">
+        <button type="button" class="more-btn" data-action="row-more"
+                aria-expanded="false"
+                title="判定详情与逐章校验（每个引擎一颗）">更多</button>
+        <span class="more-menu" hidden>${detailHtml}${verifyHtml}</span>
+    </span>`;
+}
+
+/* 行内右侧操作簇（AI 徽章 + 更多菜单 + 关注 + 拉黑）。
    整页渲染与单行原地更新（patchBookRow）共用，保证两处结构永远一致。
    拉黑排在最后：它是行内唯一的破坏性写操作，放行尾与「详情」分开，
-   扫过行时不会在点「校验」的同一段距离上误触（二段确认是第二道保险，不是第一道） */
+   扫过行时不会在点「校验」的同一段距离上误触（二段确认是第二道保险，不是第一道）。
+   关注紧挨在拉黑前面：同为行内标记，但不做二段确认——误点再点一下就能取消。
+
+   徽章与按钮各自包一层 .verdicts / .row-actions：桌面靠 CSS 仍排成一行，
+   手机端则拆成「结论一行 + 动作一条」，不再让两行右对齐的控件互相对不齐。 */
 function titleActionsHtml(book, blockedMode) {
     const bookId = book.bookId ? String(book.bookId) : '';
+    // 关注在所有视图都可用：它不是破坏性操作，分类视图里也常需要「留着盯」
+    const watched = !!book.isWatched;
+    const watchHtml = bookId
+        ? `<button type="button" class="watch-btn${watched ? ' active' : ''}"
+                       data-action="${watched ? 'unwatch' : 'watch'}"
+                       data-book-id="${escapeAttr(bookId)}"
+                       title="${watched ? '取消关注' : '关注后可在「只看关注」里集中查看'}">${watched ? '已关注' : '关注'}</button>`
+        : '';
     // 已拉黑视图里的行是来“恢复”的，正常视图里才是“拉黑”
     const blockHtml = (state.currentCategory === 'ALL' && bookId)
         ? `<button class="block-btn ${blockedMode ? 'restore' : ''}"
                        data-action="${blockedMode ? 'unblock' : 'block'}"
                        data-book-id="${escapeAttr(bookId)}">${blockedMode ? '恢复' : '拉黑'}</button>`
         : '';
-    return renderAiBadges(book) + renderAiDetailButton(book) + renderVerifyButtons(book) + blockHtml;
+    const verdictHtml = renderAiBadges(book);
+    const actionsHtml = renderMoreMenu(book) + watchHtml + blockHtml;
+    if (!verdictHtml && !actionsHtml) return '';
+    return (verdictHtml ? `<span class="verdicts">${verdictHtml}</span>` : '')
+        + (actionsHtml ? `<span class="row-actions">${actionsHtml}</span>` : '');
 }
 
 /* 单行原地更新：只替换该书的操作簇（徽章/按钮），不再整页重建 innerHTML——
@@ -673,6 +763,8 @@ export function patchBookRow(bookId) {
     if (!book) return;
     const row = document.querySelector(`#bookList .book-item[data-book-id="${CSS.escape(target)}"]`);
     if (!row) return;
+    // 动作簇马上被重建，旧菜单连同打开状态一起消失；不清 row 的类会留下抬高的 z-index
+    row.classList.remove('menu-open');
     const blockedMode = state.currentCategory === 'ALL' && state.blockedView;
     const html = titleActionsHtml(book, blockedMode);
     const container = row.querySelector('.title-actions');
@@ -694,17 +786,22 @@ export function patchBookRow(bookId) {
 }
 
 /* 分页条：首页/上一页 + 页码窗口（1 与末页恒显，缺口画省略号）+ 下一页/末页 + 跳页输入框。
-   只有一页时不显示；页码点击仍走 .pager-btn[data-page] 委托，跳页按钮走 data-action */
+   只有一页时不显示；页码点击仍走 .pager-btn[data-page] 委托，跳页按钮走 data-action。
+   翻页按钮带 full/short 两档文案：桌面用「上一页 / 下一页」，手机只留箭头，
+   给页码输入和跳转腾出同一行的宽度（aria-label 始终是完整语义） */
 function renderPager(pages) {
     if (pages <= 1) return '';
-    const btn = (label, page, disabled) =>
-        `<button class="pager-btn" data-page="${page}"${disabled ? ' disabled' : ''}>${label}</button>`;
+    const btn = (label, shortLabel, page, disabled, cls) =>
+        `<button class="pager-btn ${cls}" data-page="${page}" aria-label="${label}"
+                 ${disabled ? ' disabled' : ''}>${shortLabel
+            ? `<span class="pager-label-full">${label}</span><span class="pager-label-short" aria-hidden="true">${shortLabel}</span>`
+            : label}</button>`;
     const numBtn = (page) =>
         `<button class="pager-btn pager-num${page === state.currentPage ? ' active' : ''}"
                  data-page="${page}"${page === state.currentPage ? ' aria-current="page"' : ''}>${page}</button>`;
     const parts = [
-        btn('首页', 1, state.currentPage === 1),
-        btn('上一页', state.currentPage - 1, state.currentPage === 1)
+        btn('首页', '', 1, state.currentPage === 1, 'pager-first'),
+        btn('上一页', '‹', state.currentPage - 1, state.currentPage === 1, 'pager-prev')
     ];
 
     /* 页数少就全铺页码；多则只留 1、末页与当前页 ±1，中间缺口用省略号占位 */
@@ -724,15 +821,15 @@ function renderPager(pages) {
     });
 
     parts.push(
-        btn('下一页', state.currentPage + 1, state.currentPage === pages),
-        btn('末页', pages, state.currentPage === pages),
+        btn('下一页', '›', state.currentPage + 1, state.currentPage === pages, 'pager-next'),
+        btn('末页', '', pages, state.currentPage === pages, 'pager-last'),
         `<span class="pager-info">第 ${state.currentPage} / ${pages} 页</span>`,
         `<span class="pager-jump">
-            <label for="pageJumpInput">跳至</label>
+            <label for="pageJumpInput" class="pager-jump-label">跳至</label>
             <input type="number" id="pageJumpInput" class="input" min="1" max="${pages}"
                    placeholder="页码" aria-label="跳转到指定页">
-            <span>页</span>
-            <button type="button" class="pager-btn" data-action="page-jump">跳转</button>
+            <span class="pager-jump-unit">页</span>
+            <button type="button" class="pager-btn pager-jump-btn" data-action="page-jump">跳转</button>
         </span>`
     );
     return `<div class="pager">${parts.join('')}</div>`;

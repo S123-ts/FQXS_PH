@@ -6,7 +6,7 @@
 
 import { API_BASE, WHOLE_LIST_SIZE } from './config.js';
 import {
-    fetchRankList, postJson, setBlockedApi, fetchAllDataApi,
+    fetchRankList, postJson, setBlockedApi, setWatchedApi, fetchAllDataApi,
     fetchMetaApi, saveConfigApi, fetchVerdictsApi
 } from './api.js';
 import { state, getEffectivePageSize, loadShownPreference, saveShownPreference } from './state.js';
@@ -116,13 +116,15 @@ export function loadData(keepPage) {
         const wordRange = /** @type {HTMLSelectElement} */ (document.getElementById('filterWord')).value || '';
         const status = /** @type {HTMLSelectElement} */ (document.getElementById('filterStatus')).value || '';
         state.blockedView = /** @type {HTMLInputElement} */ (document.getElementById('filterBlocked')).checked;
-        state.filtersActive = !!(wordRange || status || state.blockedView)
+        state.watchedView = /** @type {HTMLInputElement} */ (document.getElementById('filterWatched')).checked;
+        state.filtersActive = !!(wordRange || status || state.blockedView || state.watchedView)
             || selected.length < getDisplayedCategories().length;
         const url = `${API_BASE}/allBooks`
             + `?category=${encodeURIComponent(selected.join(','))}`
             + `&wordRange=${encodeURIComponent(wordRange)}`
             + `&status=${encodeURIComponent(status)}`
-            + `&blockedOnly=${state.blockedView}`;
+            + `&blockedOnly=${state.blockedView}`
+            + `&watchedOnly=${state.watchedView}`;
 
         fetchRankList(url, signal)
             .then(data => {
@@ -150,6 +152,7 @@ export function loadData(keepPage) {
     }
 
     state.blockedView = false;
+    state.watchedView = false;
     state.filtersActive = false;
     /* category 现在传分类 code（如 M_WESTERN_FANTASY）；抓满整个分类（写库），
        之后翻页只切本地数组，不再逐页请求上游 */
@@ -383,8 +386,30 @@ export function setBlocked(bookId, blocked, btnElement) {
         });
 }
 
-/* 批量拉黑/恢复：串行逐本调既有单本接口，不新增后端契约。
-   串行而非并发，是为了让进度可读、也避免一瞬间打出一串写请求 */
+/* 关注：与拉黑共用「按 bookId 全行联动」的语义，但不设撤销窗口——
+   关注误点再点一下就取消，没有不可逆的代价，二段确认反而碍事 */
+export function setWatched(bookId, watched, btnElement) {
+    if (!bookId) return;
+
+    const previousText = btnElement.textContent;
+    const title = bookTitleOf(bookId);
+    btnElement.disabled = true;
+    btnElement.textContent = watched ? '关注中...' : '取消中...';
+
+    setWatchedApi(bookId, watched)
+        .then(() => {
+            loadData(true);
+            showToast(watched ? `已关注《${title}》` : `已取消关注《${title}》`, 'success', 3000);
+        })
+        .catch(err => {
+            console.error(watched ? '关注失败:' : '取消关注失败:', err);
+            showToast((watched ? '关注失败: ' : '取消关注失败: ') + err.message, 'error');
+            btnElement.disabled = false;
+            btnElement.textContent = previousText;
+        });
+}
+
+/* 批量拉黑/恢复：串行逐本调既有单本接口，不新增后端契约。   串行而非并发，是为了让进度可读、也避免一瞬间打出一串写请求 */
 export async function runBatchBlock(blocked) {
     const ids = Array.from(state.selection);
     if (ids.length === 0) return;
@@ -464,7 +489,19 @@ export function loadVerdictsForCurrentPage() {
         .then(body => {
             if (seq !== verdictsSeq) return;
             state.aiVerdicts = (body && body.data) || {};
-            if (state.lastData) renderBooks(state.lastData);
+            /* 结论到位后默认整页 renderBooks 会把封面 <img> 全部销毁重载，列表「再闪一下」。
+               当前 DOM 行与当前页 bookId 序列一致时（加载/翻页后的正常路径）改为逐行
+               patchBookRow：只更新行内动作簇（徽章/详情/校验），封面不动、无二次闪烁。
+               行序列不一致（数据被换过）才回退整页重绘。 */
+            const domIds = Array.from(document.querySelectorAll('#bookList .book-item[data-book-id]'))
+                .map(el => el.getAttribute('data-book-id') || '');
+            const sameRows = domIds.length === bookIds.length
+                && domIds.every((id, i) => id === String(bookIds[i]));
+            if (sameRows) {
+                domIds.forEach(id => patchBookRow(id));
+            } else if (state.lastData) {
+                renderBooks(state.lastData);
+            }
         })
         .catch(err => console.warn('引擎结论读取失败:', err));
 }
