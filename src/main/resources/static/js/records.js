@@ -28,6 +28,11 @@ const REFRESH_MS = 3000;
 let loading = false;
 let timer = 0;
 
+/* 判定结果的前端检索状态：关键词由用户掌握，3 秒自动刷新只换数据，不能把它冲掉。 */
+let latestResults = [];
+let resultQuery = '';
+let resultsLoaded = false;
+
 function byId(id) {
     return /** @type {HTMLElement} */ (document.getElementById(id));
 }
@@ -199,14 +204,26 @@ function renderChapters(chapters) {
 }
 
 function renderResults(results) {
+    latestResults = Array.isArray(results) ? results : [];
+    resultsLoaded = true;
     const tbody = byId('recResultRows');
-    byId('recResultCount').textContent = String(results.length);
-    if (!results.length) {
+    const query = resultQuery.trim().toLowerCase();
+    const visible = query
+        ? latestResults.filter(item => String(item.title || '').toLowerCase().includes(query))
+        : latestResults;
+    byId('recResultCount').textContent = query
+        ? `${visible.length} / ${latestResults.length}`
+        : String(latestResults.length);
+    if (!latestResults.length) {
         emptyRow(tbody, 8, '这个窗口里没有判定结果');
         return;
     }
+    if (!visible.length) {
+        emptyRow(tbody, 8, `没有书名包含「${resultQuery.trim()}」的判定结果`);
+        return;
+    }
     tbody.textContent = '';
-    results.forEach(item => {
+    visible.forEach(item => {
         const tr = document.createElement('tr');
         cell(tr, item.checkedTime, 'rec-time');
 
@@ -276,6 +293,11 @@ function renderKpi(payload) {
 
 /* ---------- 拉数据 ---------- */
 
+/* 数据签名：3 秒刷新时只有真正变化的块才重绘。
+   全量重建会把用户正在选中的文本清掉，滚动位置也可能跳 */
+let lastChaptersSig = '';
+let lastResultsSig = '';
+
 async function refresh() {
     if (loading) return;
     loading = true;
@@ -284,12 +306,21 @@ async function refresh() {
         const body = await fetchRecordsApi(hours, 200);
         const payload = (body && body.data) || {};
         renderKpi(payload);
+        // 正在审查的「已运行 N 秒」每轮都在变，这块保持每轮重绘
         renderRunning(payload.running || []);
-        renderChapters(payload.chapters || []);
-        renderResults(payload.results || []);
+        const chaptersSig = JSON.stringify(payload.chapters || []);
+        if (chaptersSig !== lastChaptersSig) {
+            renderChapters(payload.chapters || []);
+            lastChaptersSig = chaptersSig;
+        }
+        const resultsSig = JSON.stringify(payload.results || []);
+        if (resultsSig !== lastResultsSig) {
+            renderResults(payload.results || []);
+            lastResultsSig = resultsSig;
+        }
         byId('recUpdated').textContent = `更新于 ${fmtClock()} · 窗口 ${hours} 小时`;
     } catch (err) {
-        // 401 由 api.js 统一跳登录页；这里只报其它失败，别把「正在跳转」也写成错误
+        // 401 由 api.js 统一跳登录页；这里只报其他失败，避免把「正在跳转」记为错误
         if (err && err.status === 401) return;
         byId('recUpdated').textContent = `刷新失败：${(err && err.message) || '未知错误'}`;
     } finally {
@@ -325,6 +356,23 @@ document.getElementById('recAuto').addEventListener('change', () => {
 });
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden && inputOf('recAuto').checked) refresh();
+});
+
+const resultSearch = inputOf('resultSearch');
+resultSearch.addEventListener('input', () => {
+    resultQuery = resultSearch.value;
+    if (resultsLoaded) {
+        renderResults(latestResults);
+    }
+});
+resultSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        resultSearch.value = '';
+        resultQuery = '';
+        if (resultsLoaded) {
+            renderResults(latestResults);
+        }
+    }
 });
 
 refresh();

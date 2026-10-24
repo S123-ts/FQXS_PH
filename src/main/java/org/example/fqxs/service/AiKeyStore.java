@@ -104,6 +104,11 @@ public class AiKeyStore {
      * @throws IllegalStateException 文件写入失败（内存已更新，重启后会丢）
      */
     public void save(String engine, String key) {
+        // 内置 id 直接放行：qwen2.5-7b 含点，不满足自定义引擎的字符规则
+        if (engine == null || (!BUILTIN_PROP.containsKey(engine)
+                && !AiEngineRegistry.ID_PATTERN.matcher(engine).matches())) {
+            throw new IllegalArgumentException("引擎标识不合法: " + engine);
+        }
         String normalized = key == null ? "" : key.trim();
         if (BUILTIN_PROP.containsKey(engine)) {
             applyKey(engine, normalized);

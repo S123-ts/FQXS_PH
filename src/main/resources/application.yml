@@ -83,7 +83,7 @@ app:
   # 管理类接口（DELETE /api/db/**）的访问令牌；留空表示这些接口一律 403
   admin-token: ${APP_ADMIN_TOKEN:}
 
-  # 登录凭据（安全测试报告 H1「无身份认证」的代码层修复，见 doc/技术交接.md §4.1）
+  # 登录凭据：仓库内默认值为占位，公网部署必须用环境变量覆盖
   # 默认账号口令按要求写死在程序里，改它有两种方式：改这里，或用环境变量覆盖。
   # ⚠️ 仓库里的默认值是 admin/admin（公开仓库不写个人口令）；公网部署必须用
   #    APP_LOGIN_USER / APP_LOGIN_PASSWORD 覆盖，并把这里的默认值留空
@@ -92,7 +92,7 @@ app:
     username: ${APP_LOGIN_USER:admin}
     password: ${APP_LOGIN_PASSWORD:admin}
     # 反代后面所有人的 remoteAddr 都是 127.0.0.1，按 IP 限流会退化成「一次锁定全站」。
-    # 开这个开关就必须让反代**覆盖** X-Forwarded-For（Nginx: proxy_set_header X-Forwarded-For $remote_addr;），
+    # 开这个开关就必须让反代覆盖 X-Forwarded-For（Nginx: proxy_set_header X-Forwarded-For $remote_addr;），
     # 否则客户端能自己伪造来源绕过失败限流
     trust-forwarded-for: ${APP_AUTH_TRUST_FORWARDED:false}
 
@@ -109,16 +109,25 @@ ai:
     # 样本总字数不足下限直接报错，避免拿试读片段硬判
     min-chapter-chars: 500
     min-sample-chars: 1500
-    # 可读章节上限：未登录只有前 10 章是完整正文（第 11 章起实测 150–180 字试读），
-    # 取样候选与回退扫描都钳在此区间，省掉必然白拿的深章请求；0 = 不限（接入会员通道后做全书抽查）
+    # 可读章节上限：未登录只有前 10 章是完整正文（第 11 章起为 150–180 字试读），
+    # 取样候选与回退扫描都钳在此区间，省掉必然无效的深章请求；0 = 不限（接入会员通道后做全书抽查）
     free-head-chapters: 10
     # 会员正文通道：官方未登录只有前 10 章完整，中段/最新抽查靠它取第 11 章起的全文。
-    # 2026-10-22 S1 实测与官方逐字等价（只差每段一个全角空格），同样是 PUA 混淆串。
-    # 只填源站域名：它的内网穿透地址按天变，靠跟随 302 拿当前后端
-    third-party-base-url: https://fq-book.netsite.cc
+    # 正文与官方逐字等价（只差每段一个全角空格），同样是 PUA 混淆串。
+    # 只填源站域名：这类线路的内网穿透地址按天变，靠跟随 302 拿当前后端。
+    # 清单按顺序尝试，逗号分隔可写多条；某条挂了只冷却它自己，随后自动换下一条。
+    # 2026-10-24 实测可用的公共线路只有 fq-book 一条（/content /info /catalog 通，/search 坏），
+    # 自建 FQWeb/PyFQWeb 实例（手机或服务器起的服务）可以直接追加到这里作为第二条线路。
+    third-party-base-urls: ${THIRD_PARTY_BASE_URLS:https://fq-book.netsite.cc}
     third-party-enabled: true
-    # 该线路跑在别人的共享云手机上，挂了按形态判失败并冷却，期间深章直接跳过、回退免费区
+    # 这些线路依赖第三方共享云手机，挂了按形态判失败并冷却，期间深章直接跳过、回退免费区
     third-party-cooldown-seconds: 300
+    # 作者性别/评分补全：第三方 /info 约 19KB/本，线路很小。
+    # 只补当前榜单热度前 50，单次最多 10 本（前端默认 5），每本间隔 2 秒、严格串行。
+    book-meta-top-rank: 50
+    book-meta-batch-max: 10
+    book-meta-interval-millis: 2000
+    rating-refresh-days: 10
     # 失败留证与自动停用：同一引擎连续 N 次判定失败就停用 M 小时（到期自动恢复，重启不丢）
     fault-suspend-threshold: 3
     fault-suspend-hours: 48
@@ -160,8 +169,8 @@ ai:
     qianfan-url: https://qianfan.baidubce.com/v2/chat/completions
     qianfan-model: ernie-4.5-turbo-32k
     qianfan-api-key: ${QIANFAN_API_KEY:}
-    # 免费档文本模型。2026-10-21 实测：裸名 glm-4-flash 可用（官方免费列表里对应
-    # GLM-4-Flash-250414，128K 上下文）；官方首推的免费型号 GLM-4.7-Flash 当时返回
+    # 免费档文本模型。裸名 glm-4-flash 可用（官方免费列表里对应
+    # GLM-4-Flash-250414，128K 上下文）；官方首推的免费型号 GLM-4.7-Flash 返回
     # 429「访问量过大」，不适合批量跑 1200+ 本，故仍用 glm-4-flash
     glm-model: glm-4-flash
 
@@ -174,6 +183,16 @@ management:
     health:
       # health 细节会带数据库连接状态，对外只给 UP/DOWN
       show-details: never
+
+# 书源（Legado「阅读」）：/api/bs/** 四个只读端点，给阅读 App 消费。
+# 它不走浏览器登录门（App 没有会话），由这层可选令牌单独保护：
+# 留空 = 不校验（内网自用）；公网暴露必须设置，否则等于开放一个番茄代理
+fqxs:
+  book-source:
+    token: ${BOOK_SOURCE_TOKEN:}
+    # 与 AI 判定共享全局上游节拍；比判定的 800ms 短——阅读端翻章要即时感
+    request-interval-millis: ${BOOK_SOURCE_INTERVAL:300}
+    search-size-max: 50
 
 # OpenAPI 文档：/swagger-ui.html 浏览，/v3/api-docs 取 JSON。
 # 只收录 /api/**（页面本身与 actuator 不进文档）；文档页的 CSP 在 SecurityHeadersFilter 单独放宽

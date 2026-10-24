@@ -3,7 +3,7 @@ package org.example.fqxs.model;
 /**
  * 取样规则：从全书的哪些位置、用哪一路数据源抽章节送判。
  *
- * <p>2026-10-22 起只有三档，都是<b>固定章数、固定数据源</b>，界面不再让人填章数：</p>
+ * <p>共三档，都是<b>固定章数、固定数据源</b>，界面不提供章数输入：</p>
  * <table border="1">
  *   <caption>三档取样</caption>
  *   <tr><th>规则</th><th>章号</th><th>数据源</th><th>是否落库</th></tr>
@@ -78,23 +78,15 @@ public record SampleSpec(String strategy, int count) {
      */
     public static SampleSpec of(String strategy, int count) {
         String raw = strategy == null ? "" : strategy.trim();
-        if (!isExplicit(raw)) {
-            return defaultSpec();
-        }
         return switch (raw) {
             case HEAD -> new SampleSpec(HEAD, HEAD_CHAPTERS);
             case RECENT -> new SampleSpec(RECENT, RECENT_CHAPTERS);
             // 随机档的 count 是"每段章数"，段数固定 2
             case RANDOM -> new SampleSpec(RANDOM, RANDOM_SEGMENT_CHAPTERS);
             case MID, MID_RECENT -> new SampleSpec(raw, clampCount(count));
+            // 未传 / 非法值：入口参数不报错，回落默认档
             default -> defaultSpec();
         };
-    }
-
-    /** 是否显式指定了合法策略（未传 / 非法值都不算）。 */
-    private static boolean isExplicit(String strategy) {
-        return HEAD.equals(strategy) || MID.equals(strategy) || RECENT.equals(strategy)
-                || RANDOM.equals(strategy) || MID_RECENT.equals(strategy);
     }
 
     private static int clampCount(int count) {

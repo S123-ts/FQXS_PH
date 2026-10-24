@@ -35,7 +35,7 @@ public class ConfigService {
     public static final String RANK_TYPE_NEW = "new";
     public static final String DEFAULT_RANK_TYPE = RANK_TYPE_READ;
 
-    /** 上游实测：rankMold 2=阅读榜，1=新书榜；与 gender、category_id 共同决定抓哪个榜。 */
+    /** rankMold 2=阅读榜，1=新书榜；与 gender、category_id 共同决定抓取的榜单。 */
     public static final Map<String, Integer> RANK_MOLDS =
             Map.of(RANK_TYPE_READ, 2, RANK_TYPE_NEW, 1);
 
@@ -89,9 +89,6 @@ public class ConfigService {
      */
     @Transactional
     public void updateConfig(String rankType, List<String> displayCategories) {
-        if (rankType != null && !RANK_MOLDS.containsKey(rankType)) {
-            throw new IllegalArgumentException("参数 rankType 取值不合法: " + rankType);
-        }
         List<String> codes = null;
         if (displayCategories != null) {
             codes = displayCategories.stream()
@@ -100,7 +97,9 @@ public class ConfigService {
             validateCodes(codes);
         }
         if (rankType != null) {
-            appConfigRepository.save(new AppConfig(KEY_RANK_TYPE, rankType));
+            // 取值域由 ConfigUpdateRequest 的 @Pattern 钉住；这里只兜 service 被直接调用时的脏值
+            appConfigRepository.save(new AppConfig(KEY_RANK_TYPE,
+                    RANK_MOLDS.containsKey(rankType) ? rankType : DEFAULT_RANK_TYPE));
         }
         if (codes != null) {
             appConfigRepository.save(new AppConfig(KEY_DISPLAY_CATEGORIES, String.join(",", codes)));

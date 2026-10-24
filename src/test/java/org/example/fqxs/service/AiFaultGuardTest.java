@@ -57,6 +57,18 @@ class AiFaultGuardTest {
                 .autoBan(true).priority(0).consecutiveFailures(failures).build();
     }
 
+    /** reason 列 NOT NULL：异常消息是空白时不能落 null，否则留证与熔断计数一起静默失效。 */
+    @Test
+    void blankFailureMessageStillStoresNotNullReason() {
+        when(engineRepository.findById("glm-4-flash")).thenReturn(Optional.of(engine(0)));
+
+        guard.recordFailure("glm-4-flash", "glm-4-flash", new RuntimeException("   "), "b7");
+
+        ArgumentCaptor<AiEngineFault> captor = ArgumentCaptor.forClass(AiEngineFault.class);
+        verify(faultRepository).save(captor.capture());
+        assertThat(captor.getValue().getReason()).isEqualTo("(无消息)");
+    }
+
     @Test
     void failureStoresUpstreamStatusAndResponseExcerpt() {
         when(engineRepository.findById("glm-4-flash")).thenReturn(Optional.of(engine(0)));

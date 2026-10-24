@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 第三方正文通道的契约：状态位不可信、失败进冷却、还原口径与官方共用同一份。
- * 全部用 OkHttp 拦截器打桩，不真连那台共享云手机。
+ * 全部用 OkHttp 拦截器打桩，不连接真实服务。
  */
 class ThirdPartyChapterClientTest {
 
@@ -35,9 +35,11 @@ class ThirdPartyChapterClientTest {
     }
 
     private ThirdPartyChapterClient client(AiDetectConfig config, Interceptor interceptor) {
-        return new ThirdPartyChapterClient(
-                new okhttp3.OkHttpClient.Builder().addInterceptor(interceptor).build(),
-                mapper, config, new PuaDecoder(mapper));
+        // 线路寻址已抽到 ThirdPartySources：打桩的拦截器装在它持有的 OkHttpClient 上
+        okhttp3.OkHttpClient http =
+                new okhttp3.OkHttpClient.Builder().addInterceptor(interceptor).build();
+        return new ThirdPartyChapterClient(mapper, new PuaDecoder(mapper), config,
+                new ThirdPartySources(http, config));
     }
 
     private Response mocked(int code, String body) {
@@ -50,7 +52,7 @@ class ThirdPartyChapterClientTest {
                 .build();
     }
 
-    /** 实测形态：上游把 Xposed 堆栈装进 data 的同时 isSuccess 仍是 true，所以只能按正文形态判失败。 */
+    /** 上游会把 Xposed 堆栈装进 data 的同时 isSuccess 仍为 true，因此只能按正文形态判失败。 */
     @Test
     void stackPayloadIsFailureEvenWhenSuccessFlagIsTrue() {
         String body = "{\"data\":\"de.robv.android.xposed.XposedHelpers$InvocationTargetError: "
@@ -58,7 +60,7 @@ class ThirdPartyChapterClientTest {
         ThirdPartyChapterClient client = client(config(), chain -> mocked(200, body));
 
         assertThrows(CrawlException.class, () -> client.fetchChapter("c1"));
-        assertFalse(client.isUsable(), "结构性失败要进冷却，别让后面每本书都白试一次");
+        assertFalse(client.isUsable(), "结构性失败要进冷却，避免后续每本书重复尝试");
     }
 
     /** 第三方返回的同样是 PUA 混淆串：复用官方那张表就能还原，不需要第二份映射。 */

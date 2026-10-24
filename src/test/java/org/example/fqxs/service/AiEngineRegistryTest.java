@@ -156,6 +156,20 @@ class AiEngineRegistryTest {
                 .hasMessageContaining("端点不可修改");
     }
 
+    /** 删除自定义引擎要同时清掉 key.<id>：否则密钥永久留在磁盘，同名新引擎还会继承旧 Key。 */
+    @Test
+    void deletingCustomEngineClearsItsStoredKey() {
+        AiEngine custom = engine("glm-4-flash", null);
+        custom.setId("custom-abcd");
+        custom.setBuiltin(false);
+        when(repository.findById("custom-abcd")).thenReturn(Optional.of(custom));
+
+        registry.delete("custom-abcd");
+
+        verify(keyStore).save("custom-abcd", "");
+        verify(repository).delete(custom);
+    }
+
     /** 端点没变时必须照常保存型号/启停，否则面板上正常的操作也会被锁死。 */
     @Test
     void builtinStillSavesModelAndEnabledWhenEndpointUnchanged() {

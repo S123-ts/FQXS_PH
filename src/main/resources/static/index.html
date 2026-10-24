@@ -138,10 +138,11 @@
                 </div>
                 <div class="filter-group">
                     <label for="filterWord">字数：</label>
+                    <!-- 默认「全部」：新书榜的书大多不足 100 万字，默认卡字数会把整榜筛空 -->
                     <select id="filterWord" class="select">
-                        <option value="">全部</option>
+                        <option value="" selected>全部</option>
                         <option value="100w以内">100万以内</option>
-                        <option value="100w以上" selected>100万以上</option>
+                        <option value="100w以上">100万以上</option>
                         <option value="200w以上">200万以上</option>
                     </select>
                 </div>
@@ -153,10 +154,26 @@
                         <option value="已完结">已完结</option>
                     </select>
                 </div>
-                <div class="filter-group">
+                <div class="filter-group filter-author">
+                    <label for="filterAuthor">作者：</label>
+                    <select id="filterAuthor" class="select">
+                        <option value="male" selected>男作者</option>
+                        <option value="female">女作者</option>
+                        <option value="unknown">未知</option>
+                        <option value="">全部</option>
+                    </select>
+                    <!-- 第三方线路很小：每次只取 5 本、串行 2 秒，只补当前榜单热度前 50 -->
+                    <button type="button" class="btn btn-ghost btn-sm" id="enrichMetaBtn"
+                            title="补当前榜单热度前 50 的作者性别与评分；每次最多 5 本，间隔 2 秒">补作者信息</button>
+                </div>
+                <div class="filter-group filter-flags">
                     <label class="check-label" for="filterBlocked">
                         <input type="checkbox" id="filterBlocked">
                         只看已拉黑
+                    </label>
+                    <label class="check-label" for="filterWatched">
+                        <input type="checkbox" id="filterWatched">
+                        只看关注
                     </label>
                 </div>
             </section>
@@ -168,18 +185,21 @@
     <div id="batchBar" class="batch-bar" hidden>
         <label class="batch-all">
             <input type="checkbox" id="batchAll">
-            全选本页
+            <span class="label-full">全选本页</span><span class="label-short">全选</span>
         </label>
         <span class="batch-count">勾选左侧方框可批量操作当前页</span>
         <div class="batch-actions">
-            <button type="button" class="btn btn-soft btn-sm" data-action="batch-block" disabled>
-                <span class="btn-ico" aria-hidden="true">🚫</span><span class="btn-text">批量拉黑</span>
+            <button type="button" class="btn btn-soft btn-sm" data-action="batch-block" disabled
+                    aria-label="批量拉黑">
+                <span class="btn-ico" aria-hidden="true">🚫</span><span class="btn-text"><span class="label-full">批量拉黑</span><span class="label-short" aria-hidden="true">拉黑</span></span>
             </button>
-            <button type="button" class="btn btn-soft btn-sm" data-action="batch-unblock" disabled>
-                <span class="btn-ico" aria-hidden="true">↩</span><span class="btn-text">批量恢复</span>
+            <button type="button" class="btn btn-soft btn-sm" data-action="batch-unblock" disabled
+                    aria-label="批量恢复">
+                <span class="btn-ico" aria-hidden="true">↩</span><span class="btn-text"><span class="label-full">批量恢复</span><span class="label-short" aria-hidden="true">恢复</span></span>
             </button>
-            <button type="button" class="btn btn-ghost btn-sm" data-action="batch-clear" disabled>
-                <span class="btn-text">清除选择</span>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="batch-clear" disabled
+                    aria-label="清除选择">
+                <span class="btn-text"><span class="label-full">清除选择</span><span class="label-short" aria-hidden="true">清除</span></span>
             </button>
         </div>
     </div>
@@ -235,7 +255,7 @@
 <div class="modal-mask" id="aiDetailMask" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="aiDetailTitle">
         <div class="modal-header">
-            <h2 class="modal-title font-DNMrHsV173Pd4pgy" id="aiDetailTitle">AI 判定详情</h2>
+            <h2 class="modal-title" id="aiDetailTitle">AI 判定详情</h2>
             <button type="button" class="modal-close" data-action="ai-detail-close" aria-label="关闭 AI 详情">✕</button>
         </div>
         <p class="modal-hint" id="aiDetailHint">每个引擎的最新一次结论</p>

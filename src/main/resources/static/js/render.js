@@ -237,7 +237,7 @@ function initPinnedToolbar() {
     sentinel.className = 'stats-pin-sentinel';
     sentinel.setAttribute('aria-hidden', 'true');
     bar.parentNode.insertBefore(sentinel, bar);
-    const desktop = window.matchMedia('(min-width: 1100px)');
+    const desktop = window.matchMedia('(min-width: 1000px)');
     let ticking = false;
     const update = () => {
         ticking = false;
@@ -398,7 +398,7 @@ export function formatAiScore(score) {
 
    **徽章只放结论**。逐章校验的进度行（aiFlag=0）是"查了 n 章但还没出结论"的游标，
    不是结论，一律不参与挑选——它由逐章校验按钮承载（`ERNIE 4/20`）。两处各显示一份
-   必然对不上：2026-10-22 就出现过徽章「GLM·查验中 1」与按钮「GLM·AI 3/40」同时在场，
+   必然对不上：曾出现徽章「GLM·查验中 1」与按钮「GLM·AI 3/40」同时在场的情况，
    而且那两条进度行早已冻结（没有任何进程在跑），用户以为查完了却还显示"在查"。 */
 function renderAiBadges(book) {
     // aiVerdicts 正常是 {}；防御成对象，避免状态被意外清成 null 时整页渲染中断
@@ -447,8 +447,15 @@ function renderAiBadges(book) {
                 title="${escapeAttr((verdict.reason || shortName + ' 判为疑似 AI') + rerunHint)}">${shortName}疑似${scoreText}</button>`;
         }
         return `<button type="button" class="ai-badge human" ${attrs}
-            title="${escapeAttr(shortName + ' 判为非 AI（风险 ' + score + '）' + rerunHint)}">${shortName}·清${scoreText}</button>`;
+            title="${escapeAttr(shortName + ' 判为非 AI（风险 ' + score + '）' + rerunHint)}">${shortName}·非AI${scoreText}</button>`;
     }).join('');
+}
+
+/* 第三方评分：0/空表示暂无评分，不占位；有值时显示一位小数 */
+function renderRating(book) {
+    const rating = Number(book.rating);
+    if (!Number.isFinite(rating) || rating <= 0) return '';
+    return `<span class="rating" title="第三方评分">★ ${rating.toFixed(1)}</span>`;
 }
 
 /* 详情入口：只有拿到结论的行才显示；结论为空时没有可看的内容 */
@@ -483,7 +490,7 @@ export function verifyProgress(bookId, engineId) {
 }
 
 /* 逐章校验按钮：按「已配置 Key 的引擎」动态渲染，配置了几个就显示几个。
-   2026-10-22 起可反复点：同一模型同一章节不重复校验，命中 AI 也不再锁死，
+   可反复点：同一模型同一章节不重复校验，命中 AI 也不再锁死，
    继续把剩余章节查完。进度按「型号池里各型号已查章数之和 / (章数 × 型号数)」展示，
    全部查完才置灰——命中是结论，不该变成「按钮点不动」。
    点一次 = 按取样规则查完一批章节（`runVerifyBatch` 循环调接口），不是一章一点。 */
@@ -499,7 +506,7 @@ function renderVerifyButtons(book) {
         const { done, total, hit, perModel } = verifyProgress(book.bookId, id);
 
         if (done >= total) {
-            // 型号池里每个模型都查完这批章节：灰掉，避免重复烧额度
+            // 型号池里每个模型都查完这批章节：灰掉，避免重复消耗额度
             return `<button type="button" class="zq-btn done" disabled data-engine="${escapeAttr(id)}"
                             title="${escapeAttr(shortName)} 的所有模型都已校验完这 ${perModel} 章">${escapeText(shortName)} ${done}/${total}</button>`;
         }
@@ -521,16 +528,19 @@ export function renderBooks(data) {
     state.lastData = data; // 翻页/改每页条数要直接重画这份响应
     const all = Array.isArray(data.data) ? data.data : [];
 
-    /* 分页只切本地数组：数据已经在这份响应里，翻页不该再打后端 */
+    /* 「全部」视图由后端分页（响应带 total），data 已是当前页；
+       分类视图仍是一次抓满 100 条后本地切片 */
     const size = getEffectivePageSize();
-    const pages = Math.max(1, Math.ceil(all.length / size));
+    const serverPaged = typeof data.total === 'number';
+    const total = serverPaged ? Number(data.total) : all.length;
+    const pages = Math.max(1, Math.ceil(total / size));
     if (state.currentPage > pages) {
         state.currentPage = pages; // 页码越界（比如数据变少）钳到最后一页
     }
     const from = (state.currentPage - 1) * size;
-    const novels = all.slice(from, from + size);
+    const novels = serverPaged ? all : all.slice(from, from + size);
 
-    document.getElementById('totalCount').textContent = all.length;
+    document.getElementById('totalCount').textContent = total;
 
     const catName = categoryDisplayName(state.currentCategory);
     if (catName) {
@@ -540,7 +550,7 @@ export function renderBooks(data) {
     const blockedMode = state.currentCategory === 'ALL' && state.blockedView;
     const watchedMode = state.currentCategory === 'ALL' && state.watchedView;
     /* 多选只在「全部」视图出现：分类视图的行没有拉黑按钮，批量操作无从谈起 */
-    /* 勾选框在所有视图都可用：2026-10-22 起「校验选中」是全局动作，
+    /* 勾选框在所有视图都可用：「校验选中」是全局动作，
        只在「全部」视图给方框会让分类视图里的这个按钮永远点不动。
        批量条同理由 CSS 一并显示，拉黑/恢复走的是单本接口，与视图无关 */
     const selectable = true;
@@ -559,7 +569,12 @@ export function renderBooks(data) {
         if (state.currentCategory === 'ALL') {
             // 筛选到 0 行、当前榜单分区为空、库里真没书，三种提示要分开
             if (state.filtersActive) {
-                detail = '没有符合当前筛选条件的书，试试放宽字数或状态';
+                const authorSelect = /** @type {HTMLSelectElement} */ (document.getElementById('filterAuthor'));
+                const authorFilter = authorSelect ? authorSelect.value : '';
+                const authorLabel = {male: '男作者', female: '女作者', unknown: '未知'}[authorFilter];
+                detail = authorLabel
+                    ? `当前按「${authorLabel}」筛选；前 50 的作者信息可能还没补全，点筛选栏的「补作者信息」每次取 5 本`
+                    : '没有符合当前筛选条件的书，试试放宽字数或状态';
             } else if (data.dbEmpty === false) {
                 // 老后端没有 dbEmpty 字段时按旧文案走，只有明确 false 才说明是空分区
                 const rt = findRankType(getActiveRankType());
@@ -620,6 +635,7 @@ export function renderBooks(data) {
                     </div>
                     <div class="info-row">
                         <span class="author font-DNMrHsV173Pd4pgy">${escapeText(book.author || '未知作者')}</span>
+                        ${renderRating(book)}
                         ${renderChips(book)}
                         <span class="chapter font-DNMrHsV173Pd4pgy"
                               title="${escapeAttr(book.lastChapter || '暂无章节信息')}">📌 ${escapeText(book.lastChapter || '暂无章节信息')}</span>
@@ -706,10 +722,10 @@ export function setBatchProgress(done, total) {
 }
 
 /* 行内「更多」菜单：详情与逐章校验收进这里。
-   为什么收：3 个引擎时行内会摆 8–9 颗控件（徽章×N + 详情 + 校验×N + 关注 + 拉黑），
-   标题被挤成两行、每一行的“校验”横坐标都不一样，连点几本要重新找鼠标位置。
-   徽章必须留在外面——它是结论，引擎之间的分歧要能一眼看到；关注/拉黑也留在外面，
-   它们是对这本书的标记动作，不该藏进菜单。 */
+   原因：3 个引擎时行内排列 8–9 个控件（徽章×N + 详情 + 校验×N + 关注 + 拉黑），
+   标题被挤成两行，各行校验按钮的横坐标不一致，连续操作需要重新定位。
+   徽章必须留在外面——它是结论，引擎之间的分歧需要直接可见；关注/拉黑也留在外面，
+   它们是对这本书的标记动作，不应藏进菜单。 */
 function renderMoreMenu(book) {
     const detailHtml = renderAiDetailButton(book);
     const verifyHtml = renderVerifyButtons(book);
@@ -740,7 +756,7 @@ function titleActionsHtml(book, blockedMode) {
                        data-book-id="${escapeAttr(bookId)}"
                        title="${watched ? '取消关注' : '关注后可在「只看关注」里集中查看'}">${watched ? '已关注' : '关注'}</button>`
         : '';
-    // 已拉黑视图里的行是来“恢复”的，正常视图里才是“拉黑”
+    // 已拉黑视图中的行用于恢复，正常视图中为拉黑
     const blockHtml = (state.currentCategory === 'ALL' && bookId)
         ? `<button class="block-btn ${blockedMode ? 'restore' : ''}"
                        data-action="${blockedMode ? 'unblock' : 'block'}"
@@ -839,7 +855,7 @@ function renderPager(pages) {
 
 /* type: '' | 'success' | 'error' | 'warn'；多行文案里的 \n 靠 CSS 的
    white-space:pre-line 折行，textContent 顺带解决转义。
-   action 可选：给「撤销」这类一步就能反悔的操作挂一个按钮（拉黑后 6 秒内可撤销） */
+   action 可选：给「撤销」这类可一步撤回的操作挂一个按钮（拉黑后 6 秒内可撤销） */
 /**
  * @param {string} message
  * @param {string} [type]

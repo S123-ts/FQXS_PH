@@ -13,11 +13,11 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 登录凭据校验 + 失败限流（安全测试报告 H1 的代码层修复）。
+ * 登录凭据校验 + 失败限流。
  *
- * <p>报告里的根因是「写操作只有防 CSRF 的会话令牌，没有防未授权的身份认证」：
- * {@code X-Rank-Token} 挡的是「别的站点冒用你的浏览器」，挡不住「直接连上来的人」。
- * 这个类提供后者的判定——账号口令比对，外加按来源 IP 的失败次数限流（报告 M1）。</p>
+ * <p>背景：写操作此前只有防 CSRF 的会话令牌，没有防未授权的身份认证。
+ * {@code X-Rank-Token} 只能挡「其他站点冒用浏览器会话」，挡不住「直接连上来的请求」。
+ * 本类提供后者的判定——账号口令比对，外加按来源 IP 的失败次数限流。</p>
  *
  * <p>三条纪律：</p>
  * <ol>
@@ -134,7 +134,7 @@ public class LoginGuard {
      * 取来源标识。默认只认 {@code remoteAddr}。
      *
      * <p>放在反代后面时所有人都是 {@code 127.0.0.1}，按 IP 限流会退化成「一次锁定全站」，
-     * 所以才需要 {@code app.auth.trust-forwarded-for=true}；开了它就必须让反代**覆盖**这个头
+     * 因此需要 {@code app.auth.trust-forwarded-for=true}；开启后必须让反代<b>覆盖</b>该头
      * （Nginx：{@code proxy_set_header X-Forwarded-For $remote_addr;}），
      * 否则客户端可以自己伪造来源绕过限流。</p>
      */

@@ -36,7 +36,7 @@ public class GlobalExceptionHandler {
 
     /**
      * 连不上库时 Spring 先抛 TransactionException（事务开启阶段取不到连接），
-     * 只有连上之后执行失败才是 DataAccessException，两类都要归到 503。
+     * 只有连上之后执行失败才会抛 DataAccessException，两类都归到 503。
      */
     @ExceptionHandler({DataAccessException.class, TransactionException.class})
     public ResponseEntity<Object> onDb(RuntimeException e) {

@@ -1,6 +1,7 @@
 package org.example.fqxs.repository;
 
 import org.example.fqxs.entity.Novel;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -29,6 +30,71 @@ public interface NovelRepository extends JpaRepository<Novel, Long> {
     List<Novel> findByRankType(String rankType);
 
     List<Novel> findByCategoryCodeInAndRankType(Collection<String> categoryCodes, String rankType);
+
+    /**
+     * “全部”视图服务端分页（限定分类范围）：筛选条件全部下推，排序由 Pageable 传入。
+     *
+     * <p>{@code status} 传空串表示不筛；{@code minWan} 为开区间下限（>），
+     * {@code maxWan} 为闭区间上限（<=），null 表示该侧不限。</p>
+     */
+    @Query("SELECT n FROM Novel n WHERE n.rankType = :rankType AND n.categoryCode IN :codes "
+            + "AND n.isBlocked = :blockedOnly "
+            + "AND (:watchedOnly = false OR n.isWatched = true) "
+            + "AND (:status = '' OR n.status = :status) "
+            + "AND (:minWan IS NULL OR n.wordCountWan > :minWan) "
+            + "AND (:maxWan IS NULL OR n.wordCountWan <= :maxWan) "
+            + "AND (:authorGender = '' "
+            + "     OR (:authorGender = 'male' AND n.authorGender = 1) "
+            + "     OR (:authorGender = 'female' AND n.authorGender = 0) "
+            + "     OR (:authorGender = 'unknown' AND n.authorGender IS NULL))")
+    Page<Novel> pageAllBooksByCodes(@Param("codes") Collection<String> codes,
+                                    @Param("rankType") String rankType,
+                                    @Param("blockedOnly") boolean blockedOnly,
+                                    @Param("watchedOnly") boolean watchedOnly,
+                                    @Param("status") String status,
+                                    @Param("minWan") Double minWan,
+                                    @Param("maxWan") Double maxWan,
+                                    @Param("authorGender") String authorGender,
+                                    Pageable pageable);
+
+    /** 与 {@link #pageAllBooksByCodes} 同条件，但不限分类（排查接口的“当前榜单全部分区”）。 */
+    @Query("SELECT n FROM Novel n WHERE n.rankType = :rankType "
+            + "AND n.isBlocked = :blockedOnly "
+            + "AND (:watchedOnly = false OR n.isWatched = true) "
+            + "AND (:status = '' OR n.status = :status) "
+            + "AND (:minWan IS NULL OR n.wordCountWan > :minWan) "
+            + "AND (:maxWan IS NULL OR n.wordCountWan <= :maxWan) "
+            + "AND (:authorGender = '' "
+            + "     OR (:authorGender = 'male' AND n.authorGender = 1) "
+            + "     OR (:authorGender = 'female' AND n.authorGender = 0) "
+            + "     OR (:authorGender = 'unknown' AND n.authorGender IS NULL))")
+    Page<Novel> pageAllBooks(@Param("rankType") String rankType,
+                             @Param("blockedOnly") boolean blockedOnly,
+                             @Param("watchedOnly") boolean watchedOnly,
+                             @Param("status") String status,
+                             @Param("minWan") Double minWan,
+                             @Param("maxWan") Double maxWan,
+                             @Param("authorGender") String authorGender,
+                             Pageable pageable);
+
+    /**
+     * 作者信息补全的候选范围：当前榜单按热度去重后的前 N 本（代表行 = MIN(id)）。
+     * 只在用户点“补作者信息”时调用，绝不一次拉全库。
+     */
+    @Query("SELECT n FROM Novel n WHERE n.rankType = :rankType AND n.isBlocked = false "
+            + "AND n.bookId IS NOT NULL "
+            + "AND n.id IN (SELECT MIN(n2.id) FROM Novel n2 WHERE n2.rankType = :rankType "
+            + "           AND n2.isBlocked = false AND n2.bookId IS NOT NULL GROUP BY n2.bookId) "
+            + "ORDER BY n.readCountRaw DESC")
+    List<Novel> findMetaTopBooks(@Param("rankType") String rankType, Pageable pageable);
+
+    /**
+     * 字数数值列的回填：没有数值的行，以及解析结果为 0 的行（解析规则修正后要重算）。
+     * 原始字数为空的行不参与——它们本来就不该命中任何字数区间。
+     */
+    @Query("SELECT n FROM Novel n WHERE n.wordCount IS NOT NULL AND n.wordCount <> '' "
+            + "AND (n.wordCountWan IS NULL OR n.wordCountWan = 0)")
+    List<Novel> findWordCountRowsToBackfill();
 
     /** upsert 的批量预读：同一本书可挂在多个分类下，必须按 (categoryCode, rankType, bookId) 定位。 */
     List<Novel> findByCategoryCodeAndRankTypeAndBookIdIn(String categoryCode, String rankType,
@@ -65,13 +131,13 @@ public interface NovelRepository extends JpaRepository<Novel, Long> {
     int deleteByCategoryCode(String categoryCode);
 
     /**
-     * 免费初筛候选：指定引擎的**任一勾选型号**都还没判过的书，按热度从高到低取。
+     * 免费初筛候选：指定引擎的<b>任一勾选型号</b>都未判过的书，按热度从高到低取。
      * 同一本书跨多个分类各有一行，必须 GROUP BY bookId 去重，否则一次批量会把
-     * 同一本书判N遍；排序用聚合后的热度，避免 ORDER BY 非分组列报错。
+     * 同一本书判 N 遍；排序用聚合后的热度，避免 ORDER BY 非分组列报错。
      * “缺结论”用 NOT IN 子查询对 verdict 表反查；型号池参与比对——勾选多个型号时，
-     * 只要任一型号判过就算判过，避免同一本书被几个型号各烧一次额度。
+     * 只要任一型号判过即视为判过，避免同一本书被多个型号重复消耗额度。
      * 调用方应随机挑页（见 AiDetectServiceImpl.sweepFree）：固定取第 0 页会让
-     * 热度低的书永远轮不到，并且某本持续失败时会次次卡在队首。
+     * 热度低的书永远轮不到，且某本书持续失败时会一直占据队首。
      */
     @Query("SELECT n.bookId FROM Novel n WHERE n.isBlocked = false "
             + "AND n.bookId NOT IN (SELECT v.bookId FROM NovelAiVerdict v "
@@ -91,4 +157,31 @@ public interface NovelRepository extends JpaRepository<Novel, Long> {
     /** 某个判定标记下的书籍数（按书去重），用于页面展示判定分布。 */
     @Query("SELECT COUNT(DISTINCT n.bookId) FROM Novel n WHERE n.aiFlag = :aiFlag")
     long countDistinctBooksByAiFlag(@Param("aiFlag") int aiFlag);
+
+    /**
+     * 书源搜索：书名或作者模糊匹配，按 bookId 去重后分页。
+     *
+     * <p>去重原因：同一本书挂在多个分类榜各一行，不去重搜索页会出现多个同名条目。
+     * 取 {@code MIN(id)} 的代表行；{@code bookId IS NULL} 的历史脏行无法定位详情，不参与。
+     * 排序「精确书名 → 书名前缀 → 书名包含 → 作者包含」，同档按热度降序——找某本具体的书时，
+     * 精确命中必须排第一。通配符由服务层转义并用 {@code ESCAPE '!'} 声明，调用方传不进 {@code %}。</p>
+     */
+    @Query("SELECT n FROM Novel n WHERE n.isBlocked = false AND n.bookId IS NOT NULL "
+            + "AND (LOWER(n.title) LIKE :like ESCAPE '!' OR LOWER(n.author) LIKE :like ESCAPE '!') "
+            + "AND n.id IN (SELECT MIN(n2.id) FROM Novel n2 WHERE n2.isBlocked = false "
+            + "AND n2.bookId IS NOT NULL "
+            + "AND (LOWER(n2.title) LIKE :like ESCAPE '!' OR LOWER(n2.author) LIKE :like ESCAPE '!') "
+            + "GROUP BY n2.bookId) "
+            + "ORDER BY CASE WHEN LOWER(n.title) = :keyword THEN 0 "
+            + "WHEN LOWER(n.title) LIKE :prefix ESCAPE '!' THEN 1 "
+            + "WHEN LOWER(n.title) LIKE :like ESCAPE '!' THEN 2 ELSE 3 END ASC, "
+            + "n.readCountRaw DESC")
+    List<Novel> searchByKeyword(@Param("keyword") String keyword, @Param("like") String like,
+                                @Param("prefix") String prefix, Pageable pageable);
+
+    /** 与 {@link #searchByKeyword} 同条件的总数（按书去重），书源分页靠它判断下一页。 */
+    @Query("SELECT COUNT(DISTINCT n.bookId) FROM Novel n WHERE n.isBlocked = false "
+            + "AND n.bookId IS NOT NULL "
+            + "AND (LOWER(n.title) LIKE :like ESCAPE '!' OR LOWER(n.author) LIKE :like ESCAPE '!')")
+    long countSearchKeyword(@Param("like") String like);
 }

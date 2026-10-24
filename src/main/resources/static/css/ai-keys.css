@@ -51,6 +51,13 @@
     border-color: var(--accent);
     color: var(--accent);
 }
+/* 删除确认态：与行内「拉黑」同语义，第二次点击才真正删除 */
+.key-expand.confirm,
+.key-expand.confirm:hover {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+}
 
 .key-name {
     font-size: var(--fs-sm);
@@ -229,5 +236,20 @@
     .key-model {
         min-width: 0;
         width: 100%;
+    }
+}
+
+/* 手机：所有引擎默认收起（JS 在 ai_config.js 里判断断点），
+   标题行的「编辑 / 配置」「测试」抬到 32px，避免在滚动面板里点不准 */
+@media (max-width: 640px) {
+    .key-head {
+        gap: 6px;
+    }
+    .key-expand {
+        min-height: 32px;
+        padding: 3px 10px;
+    }
+    .key-row.collapsed {
+        padding: 12px 0;
     }
 }

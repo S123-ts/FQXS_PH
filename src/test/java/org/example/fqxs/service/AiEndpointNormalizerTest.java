@@ -6,11 +6,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 端点归一与 SSRF 字面量校验（线上实测报告 §7.1 的回归）。
+ * 端点归一与 SSRF 字面量校验。
  *
  * <p>这些用例<b>不联网</b>：归一器只判字面量，域名解析在连接层（{@code GuardedDns}）。
- * 报告里被放行的 5 种写法（十进制整数、十六进制、点分十进制元数据、内网、解析到回环的公共域名）
- * 前四种在这里钉死，第五种在 {@code GuardedDnsTest} 里钉。</p>
+ * 被放行的 5 种写法（十进制整数、十六进制、点分十进制元数据、内网、解析到回环的公共域名）
+ * 前四种在这里覆盖，第五种在 {@code GuardedDnsTest} 里覆盖。</p>
  */
 class AiEndpointNormalizerTest {
 

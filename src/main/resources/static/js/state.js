@@ -14,6 +14,8 @@ export const state = {
     filterReady: false,
     // “全部”视图是否切到已拉黑列表，决定行内按钮是“拉黑”还是“恢复”
     blockedView: false,
+    // “全部”视图是否只显示已关注的书；与 blockedOnly 取交集
+    watchedView: false,
     currentPage: 1,
     // 最近一次响应，翻页/改每页条数时直接重画，不再请求上游
     lastData: null,

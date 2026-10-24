@@ -32,6 +32,23 @@ public final class ApiResult {
         return result;
     }
 
+    /**
+     * 页式返回：{@code total} 是<b>真实命中总数</b>，不是本页条数。
+     *
+     * <p>书源消费方（Legado）靠它判断有没有下一页，所以不能复用 {@link #list}——
+     * 那个 total 是页内条数，页面 20 多处依赖它，不能改语义。</p>
+     *
+     * @param data  当前页数据
+     * @param total 命中总数
+     * @return 信封
+     */
+    public static Map<String, Object> page(List<?> data, long total) {
+        Map<String, Object> result = base(0, "success");
+        result.put("data", data == null ? List.of() : data);
+        result.put("total", total);
+        return result;
+    }
+
     public static Map<String, Object> fail(int code, String message) {
         return base(code, message);
     }

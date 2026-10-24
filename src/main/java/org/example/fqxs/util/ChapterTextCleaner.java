@@ -34,7 +34,7 @@ public class ChapterTextCleaner {
      * 清洗结果。
      *
      * @param text          清洗后正文
-     * @param chars         正文字数（含标点，与 {@code ChapterSample.chars} 同口径）
+     * @param chars         正文字数（含标点，与 {@code ChapterSample.chars} 一致）
      * @param puaUnresolved 解码后仍残留的私用区字符数，正常为 0
      */
     public record Cleaned(String text, int chars, int puaUnresolved) {

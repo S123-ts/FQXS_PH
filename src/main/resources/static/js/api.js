@@ -94,6 +94,11 @@ export function fetchRankList(url, signal) {
     return requestJson(url, {signal});
 }
 
+/* 补作者性别/评分：服务端严格限流（每次 ≤5 本、间隔 2 秒），前端只触发一小批 */
+export function enrichBookMetaApi(limit) {
+    return postJson(`${API_BASE}/enrich?limit=${encodeURIComponent(limit)}`);
+}
+
 /* ---------- 登录态 ---------- */
 
 /* 退出登录：服务端销毁会话。不用 postJson —— 它要写令牌，而会话可能已经过期，
@@ -104,6 +109,12 @@ export function logoutApi(signal) {
 
 export function setBlockedApi(bookId, blocked, signal) {
     const path = blocked ? 'block' : 'unblock';
+    return postJson(`${API_BASE}/${path}/${encodeURIComponent(bookId)}`, {signal});
+}
+
+/* 关注/取消关注：与拉黑同构的写操作，按 bookId 全行联动 */
+export function setWatchedApi(bookId, watched, signal) {
+    const path = watched ? 'watch' : 'unwatch';
     return postJson(`${API_BASE}/${path}/${encodeURIComponent(bookId)}`, {signal});
 }
 

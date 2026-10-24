@@ -10,7 +10,7 @@ import static org.mockito.Mockito.mock;
 
 /**
  * 连接打不开（H2 文件被锁、路径损坏）时迁移失败只能记日志，
- * 不能炸掉启动——技术交接 §3 的“数据库不可用照样启动”契约。
+ * 不能终止启动——数据库不可用时应用仍须启动。
  */
 class FlywayToleranceTest {
 

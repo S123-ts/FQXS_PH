@@ -59,8 +59,7 @@ let aiPageAbort = null;
 let aiRerunInFlight = false;
 
 // 未配 Key 的统一引导文案：初筛与校验选中用同一句，行为一致
-const NO_ENGINE_HINT = '未配置免费引擎密钥：把 ai-keys.bat.example 复制为 ai-keys.bat，'
-    + '填入 GLM_API_KEY（智谱）或 QWEN_API_KEY（硅基流动）后重启应用';
+const NO_ENGINE_HINT = '未配置免费引擎密钥：点右上角「API 密钥」配置任意一个免费引擎，保存即生效';
 
 // 免费引擎的选择框文案：全名进 title，短名进选项
 const ENGINE_LABELS = {
@@ -118,10 +117,10 @@ function renderEngineSelect() {
     select.value = state.currentEngine;
 }
 
-/* 免费批量初筛：<b>一次点击 = 一批</b>（默认 5 本），取当前取样规则。
-   2026-10-22 起不再自动续批：旧实现 while(true) 一直跑到判完，用户点一次就等于
-   把上游请求与模型额度全交出去，中途既看不清也停不住。现在由人决定什么时候继续。
-   运行中再点一次 = 请求当前批结束后停止（已发出的那批后端会跑完，无法中断）。 */
+/* 免费批量初筛：一次点击 = 一批（默认 5 本），取当前取样规则。
+   不自动续批：while(true) 会一直跑到判完，一次点击即交出上游请求与模型额度，
+   中途既无法观察也无法停止。运行中再点一次 = 请求当前批结束后停止
+   （已发出的那批后端会跑完，无法中断）。 */
 export async function runAiSweep(limit, engine, options) {
     if (aiSweepInFlight) {
         if (aiSweepAbort) aiSweepAbort.abort();
@@ -188,7 +187,7 @@ export async function runAiSweep(limit, engine, options) {
             const batchBad = (result.processed || 0) === 0 && (result.failed || 0) > 0;
             const errors = result.errors || [];
             const firstError = errors[0] || '';
-            // 整批错误全是书本级（试读/目录空）时换引擎同样失败，白烧额度
+            // 整批错误全是书本级（试读/目录空）时换引擎同样失败，只会重复消耗额度
             const bookLevelOnly = batchBad && errors.length > 0
                 && errors.every(item => BOOK_LEVEL_ERROR.test(item));
             const engineLevel = batchBad && !bookLevelOnly
@@ -232,12 +231,12 @@ function isAbortError(err) {
     return !!err && (err.name === 'AbortError' || err.code === 20);
 }
 
-/* 校验选中：用所选免费引擎逐个判定**已勾选**的书（支持单选与多选）。
+/* 校验选中：用所选免费引擎逐个判定已勾选的书（支持单选与多选）。
    默认跳过已有该引擎初筛结论的书（后端幂等守卫兜底另一标签页的陈旧缓存）；
-   勾了「重判」则选中的全部重走，并带 force=true —— 这是明确要再花一次额度的动作。
-   逐本串行（不并发）——上游章节接口怕风控，模型接口怕限流；
-   每本完成只原地更新该行的徽章与按钮，不再整页重建。
-   运行中再点一次按钮 = 判完当前这本后停止；失败的书没写结论，再点一次会自动只重判它们 */
+   勾了「重判」则选中的全部重走，并带 force=true（明确再消耗一次额度）。
+   逐本串行（不并发）：上游章节接口受限流约束，模型接口同样有速率上限；
+   每本完成只原地更新该行的徽章与按钮，不整页重建。
+   运行中再点一次按钮 = 判完当前这本后停止；失败的书没写结论，再点一次只会重判它们 */
 export async function runSelectionVerdict() {
     if (aiPageInFlight) {
         if (aiPageAbort) aiPageAbort.abort();
@@ -279,63 +278,67 @@ export async function runSelectionVerdict() {
     let suspectCount = 0;
     let failed = 0;
     let stopped = false;
-    for (const book of pending) {
-        if (signal.aborted) {
-            stopped = true;
-            break;
-        }
-        setBtnState(btn, '⏹', `校验中 ${done + 1}/${pending.length}`);
-        try {
-            const body = await detectFreeApi(book.bookId, {engine: activeEngine, force, sample}, signal);
-            const result = (body && body.data) || {};
-            // 主表综合列与逐引擎明细都回写本地缓存，翻页后依然正确
-            patchLocalBook(book.bookId, {
-                aiFlag: result.aiFlag,
-                aiScore: result.aiScore,
-                aiEngine: result.engine
-            });
-            upsertLocalVerdict(book.bookId, {
-                engine: result.engine,
-                aiFlag: result.aiFlag,
-                aiScore: result.aiScore,
-                reason: result.reason
-            });
-            if (result.aiFlag === 2) aiCount++;
-            else if (result.aiFlag === 3) suspectCount++;
-            consecutiveFailed = 0;
-        } catch (err) {
-            if (isAbortError(err)) {
+    try {
+        for (const book of pending) {
+            if (signal.aborted) {
                 stopped = true;
                 break;
             }
-            failed++;
-            consecutiveFailed++;
-            console.warn('选中校验失败:', book.bookId, err.message);
-            // 连续 3 本失败：多半是密钥/限流问题，换下一个可用引擎把剩下的书判完。
-            // 已判过的书不受影响（结论按实际引擎入库），失败的那几本没写结论，再点一次会重判
-            if (!randomMode && consecutiveFailed >= 3) {
-                const next = nextAvailableEngine(activeEngine, triedEngines);
-                if (next) {
-                    showToast(`${engineLabel(activeEngine)} 连续失败 ${consecutiveFailed} 本（${err.message}），`
-                        + `已切换到 ${engineLabel(next)} 继续`, 'warn', 8000);
-                    triedEngines.add(next);
-                    activeEngine = next;
-                    consecutiveFailed = 0;
-                    switchActiveEngine(next);
+            setBtnState(btn, '⏹', `校验中 ${done + 1}/${pending.length}`);
+            try {
+                const body = await detectFreeApi(book.bookId, {engine: activeEngine, force, sample}, signal);
+                const result = (body && body.data) || {};
+                // 主表综合列与逐引擎明细都回写本地缓存，翻页后依然正确
+                patchLocalBook(book.bookId, {
+                    aiFlag: result.aiFlag,
+                    aiScore: result.aiScore,
+                    aiEngine: result.engine
+                });
+                upsertLocalVerdict(book.bookId, {
+                    engine: result.engine,
+                    aiFlag: result.aiFlag,
+                    aiScore: result.aiScore,
+                    reason: result.reason
+                });
+                if (result.aiFlag === 2) aiCount++;
+                else if (result.aiFlag === 3) suspectCount++;
+                consecutiveFailed = 0;
+            } catch (err) {
+                if (isAbortError(err)) {
+                    stopped = true;
+                    break;
+                }
+                failed++;
+                consecutiveFailed++;
+                console.warn('选中校验失败:', book.bookId, err.message);
+                // 连续 3 本失败：多半是密钥/限流问题，换下一个可用引擎把剩下的书判完。
+                // 已判过的书不受影响（结论按实际引擎入库），失败的那几本没写结论，再点一次会重判
+                if (!randomMode && consecutiveFailed >= 3) {
+                    const next = nextAvailableEngine(activeEngine, triedEngines);
+                    if (next) {
+                        showToast(`${engineLabel(activeEngine)} 连续失败 ${consecutiveFailed} 本（${err.message}），`
+                            + `已切换到 ${engineLabel(next)} 继续`, 'warn', 8000);
+                        triedEngines.add(next);
+                        activeEngine = next;
+                        consecutiveFailed = 0;
+                        switchActiveEngine(next);
+                    }
                 }
             }
+            done++;
+            // 只更新这一行的徽章与按钮：整页重建会让封面重新加载、列表闪一遍
+            patchBookRow(book.bookId);
         }
-        done++;
-        // 只更新这一行的徽章与按钮：整页重建会让封面重新加载、列表闪一遍
-        patchBookRow(book.bookId);
-    }
 
-    setBtnState(btn, '🧪', selectionButtonLabel());
-    const summary = (stopped ? '选中校验已停止：' : '选中校验完成：') + `${done} 本（AI ${aiCount} / 疑似 ${suspectCount}）`
-        + (skipped ? `，跳过已判 ${skipped}` : '') + (failed ? `，失败 ${failed}` : '');
-    showToast(summary, failed ? 'warn' : 'success', 5000);
-    aiPageInFlight = false;
-    aiPageAbort = null;
+        const summary = (stopped ? '选中校验已停止：' : '选中校验完成：') + `${done} 本（AI ${aiCount} / 疑似 ${suspectCount}）`
+            + (skipped ? `，跳过已判 ${skipped}` : '') + (failed ? `，失败 ${failed}` : '');
+        showToast(summary, failed ? 'warn' : 'success', 5000);
+    } finally {
+        // 循环体里的本地写缓存抛错时也必须复位，否则按钮永久停在「校验中」，再点只能停止
+        setBtnState(btn, '🧪', selectionButtonLabel());
+        aiPageInFlight = false;
+        aiPageAbort = null;
+    }
 }
 
 /* 选中的书：state.selection 已由 syncBatchBar 裁到当前页，这里再按当前页切片取实体 */
@@ -405,7 +408,7 @@ function formatFlag(flag) {
    aiFlag>0 且 chaptersChecked 为空、且不是逐章行） */
 function hasEngineSweepVerdict(bookId, engine) {
     const rows = (state.aiVerdicts || {})[bookId] || [];
-    // 型号池参与判定：切池后旧型号的结论不算数（与后端待判集口径一致）
+    // 型号池参与判定：切池后旧型号的结论无效（与后端待判集一致）
     const pools = (state.aiStatus && state.aiStatus.modelPools) || {};
     const pool = pools[engine];
     return rows.some(row => row.engine === engine
@@ -443,7 +446,7 @@ function applyVerifyStep(bookId, engine, result, message) {
     const rows = (state.aiVerdicts || {})[bookId] || [];
     const previous = rows.find(row => row.engine === engine
         && String(row.model || '') === rowModel);
-    // 曾经命中就保持命中：后续章节没命中不能把"已判 AI"的结论抹掉（与服务端同规则）
+    // 命中过即保持命中：后续章节未命中不能撤销"已判 AI"的结论（与服务端同规则）
     const keptHit = !!previous && Number(previous.aiFlag) === 2;
     upsertLocalVerdict(bookId, {
         engine: engine,
@@ -474,25 +477,25 @@ function reportVerifyResult(shortName, chapters, hits, failure, allDone) {
         showToast(`${shortName} 没有可校验的章节`, 'warn', 6000);
         return;
     }
-    // 型号池还没查完时提示可以再点，别让人以为已经查完了
+    // 型号池未查完时提示可继续点击，避免误认为已查完
     const tail = allDone ? '型号池都已校验完' : `本次校验 ${chapters} 章，再点可继续`;
     showToast(`${shortName} ${tail}（命中 ${hits} 章）`, hits > 0 ? 'warn' : 'success', 7000);
 }
 
-/* 逐章校验：点一次按当前取样规则查完**一批**章节（默认前 10 章），不再一章一点。
+/* 逐章校验：点一次按当前取样规则查完一批章节（默认前 10 章），不再一章一点。
    一次点击的章数以服务端返回的 totalChapters 为准（短书不足 10 章就是几章），
    所以按钮上的 n/总数 每点一次固定前进一批；型号池里有几个型号就点几次。
 
    为什么不一口气把池内所有型号跑完：GLM 池 4 个型号 = 40 次模型调用，
-   一次点击烧掉 40 次额度太快，也不给人反悔的机会。
+   一次点击消耗 40 次额度过快，且无法中途终止。
 
    为什么不按"某个型号查完"来停：服务端每一步都会在型号池里重新随机挑型号
    （摊额度），一批 10 章可能落在 2–3 个型号上，`finished` 要等某个型号凑满才置位——
    按它停会让一次点击变成 40 次调用。
 
    为什么在前端循环：一批 10 章的模型调用要 30–60 秒，塞进一个请求里界面全程没有进度、
-   断网整批白跑；逐章请求能实时显示 n/总数，而且服务端按 (book, engine, model#verify)
-   记游标——中途关页面再点一次从断点继续，已查过的章不会重复烧额度。
+   断网则整批作废；逐章请求能实时显示 n/总数，且服务端按 (book, engine, model#verify)
+   记游标——中途关页面再点一次从断点继续，已查过的章不会重复消耗额度。
    命中 AI 不再是终态：继续把剩余章节查完，逐章结论写进详情流水。 */
 export async function runVerifyBatch(bookId, engine, btnElement) {
     if (!bookId || !btnElement || !engine) return;
@@ -532,11 +535,11 @@ export async function runVerifyBatch(bookId, engine, btnElement) {
             const progress = verifyProgress(bookId, engine);
             // 循环期间不重绘整行（patchBookRow 会重建按钮，把这条文案冲掉），只改活着的这颗
             btnElement.textContent = `${shortName} 校验中 ${progress.done}/${progress.total}`;
-            // 一批查够 / 型号池查完就收手：池内全跑会一次烧掉 10 × 型号数 次额度
+            // 一批查够 / 型号池查完即停止：池内全跑会一次消耗 10 × 型号数 次额度
             if (allDone || chapters >= (batchSize || fallbackBatch) || progress.done >= progress.total) {
                 break;
             }
-            // 进度没动：这一章既没判定也没推进，连续两次就停，别把额度烧空
+            // 进度没动：该章既未判定也未推进，连续两次即停止，避免额度耗尽
             if (progress.done > lastDone) {
                 lastDone = progress.done;
                 stalled = 0;

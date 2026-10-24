@@ -4,12 +4,15 @@
    明暗主题跟随系统，不写死色值（缺变量时宁可退化）。
    ============================================================ */
 
+/* 页头与正文同一宽度并居中：否则宽屏下右侧按钮贴视口、表格停在左侧 */
 .rec-head {
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 14px 16px;
     flex-wrap: wrap;
+    max-width: 1320px;
+    margin: 0 auto;
 }
 
 .rec-title {
@@ -27,7 +30,8 @@
 
 .rec-main {
     padding: 0 16px 40px;
-    max-width: 1200px;
+    max-width: 1320px;
+    margin: 0 auto;
 }
 
 .rec-toolbar {
@@ -107,6 +111,25 @@
     gap: 8px;
     margin: 0 0 8px;
     font-size: 15px;
+}
+
+/* 判定结果标题行：标题 + 计数 + 书名检索。检索框贴右，放不下时整行换行，
+   不去压表格列宽（fixed 布局下标题区溢出会直接变成整页横向滚动） */
+.rec-block-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+.rec-block-head .rec-block-title {
+    margin-bottom: 0;
+}
+.rec-search {
+    margin-left: auto;
+    width: min(260px, 100%);
+    min-height: 34px;
+    font-size: 14px;
 }
 
 .rec-count {
@@ -226,9 +249,9 @@
 .rec-table-result th:nth-child(3), .rec-table-result td:nth-child(3) { width: 18%; }
 .rec-table-result th:nth-child(4), .rec-table-result td:nth-child(4) { width: 7%; }
 .rec-table-result th:nth-child(5), .rec-table-result td:nth-child(5) { width: 6%; }
-/* 章节列从 6% 放到 9%：它要装「第 990–999 章」甚至「第 990–994、995–999 章」，
-   6% 时 nowrap 的文本会溢出单元格、直接盖住右边「类型」列（实测截图里
-   「第 990-999章」压在「整本初筛」上）。类型列让 1%，理由列让 2% 补回来 */
+/* 章节列从 6% 调到 9%：需要容纳「第 990–999 章」甚至「第 990–994、995–999 章」，
+   6% 时 nowrap 的文本会溢出单元格并盖住右侧「类型」列（「第 990-999章」压在
+   「整本初筛」上）。类型列让 1%，理由列让 2% 补回。 */
 .rec-table-result th:nth-child(6), .rec-table-result td:nth-child(6) { width: 9%; }
 .rec-table-result th:nth-child(7), .rec-table-result td:nth-child(7) { width: 8%; }
 .rec-table-result th:nth-child(8), .rec-table-result td:nth-child(8) { width: 16%; }
@@ -321,8 +344,8 @@
         font-size: 12px;
     }
 
-    /* 表头 nowrap + fixed 布局 = 文字溢出单元格、整页横向滚动条（实测 docW 433 > 420）。
-       窄屏一律允许表头与时间折行，列宽交给上面的百分比 */
+    /* 表头 nowrap + fixed 布局会导致文字溢出单元格、出现整页横向滚动条（docW 433 > 420）。
+       窄屏一律允许表头与时间折行，列宽由上面的百分比决定 */
     .rec-table th,
     .rec-time {
         white-space: normal;
@@ -376,5 +399,228 @@
 @media (prefers-reduced-motion: reduce) {
     .rec-dot {
         animation: none;
+    }
+}
+
+/* ---------- 手机 / 平板卡片（≤900px） ----------
+   八列判定表在 390px 即使藏掉三列，时间/书名/引擎仍被挤成竖排；768 的平板
+   同样放不下完整八列。这一档把每行改成一张卡片：时间 + 结论 + 概率一行，
+   书名一行，引擎/章节/类型一行，理由压两行；拉取表同理，统计值三列并排。
+   901px 以上完全沿用原来的表格。 */
+@media (max-width: 900px) {
+    /* KPI：三档指标同排，避免 2+1 的孤行把首屏拉长 */
+    .rec-kpi {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+    }
+    .rec-kpi-item {
+        padding: 8px 10px;
+    }
+    .rec-kpi-label {
+        margin-bottom: 2px;
+        font-size: 11px;
+    }
+    .rec-kpi-value {
+        font-size: 18px;
+    }
+    .rec-kpi-sub {
+        font-size: 11px;
+        line-height: 1.35;
+    }
+
+    /* 书名检索在手机档占满标题行下方，16px 字号避免 iOS 聚焦时放大整页 */
+    .rec-block-head {
+        align-items: flex-start;
+    }
+    .rec-search {
+        margin-left: 0;
+        width: 100%;
+        min-height: 40px;
+        font-size: 16px;
+    }
+
+    .rec-table {
+        display: block;
+        font-size: 12px;
+    }
+    .rec-table thead {
+        display: none;
+    }
+    .rec-table tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .rec-table tr {
+        display: grid;
+        gap: 4px 8px;
+        padding: 10px 12px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        box-shadow: var(--shadow-sm);
+    }
+    .rec-table td {
+        display: block;
+        padding: 0;
+        border: 0;
+        vertical-align: baseline;
+    }
+    /* 桌面/窄屏都写过百分比列宽；卡片布局下宽度交给网格，避免旧宽度把格子撑歪 */
+    .rec-table td:nth-child(n) {
+        width: auto;
+    }
+    .rec-table td.rec-empty {
+        grid-column: 1 / -1;
+        padding: 14px 0;
+    }
+    .rec-table .rec-time {
+        font-size: 12px;
+        opacity: 0.7;
+        white-space: nowrap;
+    }
+    .rec-table .rec-book {
+        max-width: none;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.4;
+    }
+    .rec-table .rec-book-id {
+        font-size: 10px;
+    }
+    .rec-table .rec-reason {
+        max-height: 3.2em;
+        font-size: 12px;
+        line-height: 1.55;
+    }
+    .rec-flag {
+        font-size: 11px;
+    }
+
+    /* 拉取表：书名 + 三项统计 + 拉取时间/PUA。
+       原来在 ≤760 藏掉了字数与 PUA，卡片有位置了就把它们放回来 */
+    .rec-table-fetch tr {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-areas:
+            "title title title"
+            "chapters chars latest"
+            "fetched fetched pua";
+    }
+    .rec-table-fetch td:nth-child(1) { grid-area: title; }
+    .rec-table-fetch td:nth-child(2) { grid-area: chapters; }
+    .rec-table-fetch td:nth-child(3) { grid-area: chars; }
+    .rec-table-fetch td:nth-child(4) { grid-area: latest; }
+    .rec-table-fetch td:nth-child(5) { grid-area: fetched; }
+    .rec-table-fetch td:nth-child(6) { grid-area: pua; }
+    .rec-table-fetch td:nth-child(3),
+    .rec-table-fetch td:nth-child(6) {
+        display: block;
+    }
+    .rec-table-fetch td:nth-child(2),
+    .rec-table-fetch td:nth-child(3),
+    .rec-table-fetch td:nth-child(4) {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        font-weight: 600;
+    }
+    .rec-table-fetch td:nth-child(2)::before,
+    .rec-table-fetch td:nth-child(3)::before,
+    .rec-table-fetch td:nth-child(4)::before,
+    .rec-table-fetch td:nth-child(5)::before,
+    .rec-table-fetch td:nth-child(6)::before {
+        color: var(--text-3);
+        font-size: 10px;
+        font-weight: 400;
+    }
+    .rec-table-fetch td:nth-child(2)::before { content: "章节"; }
+    .rec-table-fetch td:nth-child(3)::before { content: "字数"; }
+    .rec-table-fetch td:nth-child(4)::before { content: "最新章"; }
+    .rec-table-fetch td:nth-child(5)::before {
+        content: "最近拉取 ";
+        font-family: inherit;
+    }
+    .rec-table-fetch td:nth-child(5) {
+        align-self: end;
+        font-size: 12px;
+        opacity: 0.75;
+        white-space: nowrap;
+    }
+    .rec-table-fetch td:nth-child(6) {
+        justify-self: end;
+        text-align: right;
+        font-weight: 600;
+    }
+    .rec-table-fetch td:nth-child(6)::before {
+        content: "PUA";
+        display: block;
+    }
+
+    /* 判定结果：时间/结论/概率 → 书名 → 引擎/章节/类型 → 理由 */
+    .rec-table-result tr {
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        grid-template-areas:
+            "time flag score"
+            "title title title"
+            "engine chapter type"
+            "reason reason reason";
+    }
+    .rec-table-result td:nth-child(1) { grid-area: time; }
+    .rec-table-result td:nth-child(2) { grid-area: title; }
+    .rec-table-result td:nth-child(3) { grid-area: engine; }
+    .rec-table-result td:nth-child(4) { grid-area: flag; justify-self: start; }
+    .rec-table-result td:nth-child(5) { grid-area: score; justify-self: end; }
+    .rec-table-result td:nth-child(6) { grid-area: chapter; }
+    .rec-table-result td:nth-child(7) { grid-area: type; justify-self: end; }
+    .rec-table-result td:nth-child(8) { grid-area: reason; }
+    /* ≤760 时这三列被藏掉了；卡片布局需要它们承载上下文 */
+    .rec-table-result td:nth-child(3),
+    .rec-table-result td:nth-child(6),
+    .rec-table-result td:nth-child(8) {
+        display: block;
+    }
+    .rec-table-result td:nth-child(1),
+    .rec-table-result td:nth-child(4),
+    .rec-table-result td:nth-child(5) {
+        align-self: center;
+    }
+    .rec-table-result td:nth-child(5) {
+        color: var(--accent);
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .rec-table-result td:nth-child(3) {
+        min-width: 0;
+        color: var(--text-2);
+        font-size: 11px;
+        overflow-wrap: anywhere;
+    }
+    .rec-table-result td:nth-child(3)::before {
+        content: "引擎 ";
+        color: var(--text-3);
+    }
+    .rec-table-result td:nth-child(6) {
+        color: var(--text-2);
+        font-size: 11px;
+        white-space: nowrap;
+    }
+    .rec-table-result td:nth-child(6)::before {
+        content: "章节 ";
+        color: var(--text-3);
+    }
+    .rec-table-result td:nth-child(7) {
+        color: var(--text-3);
+        font-size: 11px;
+        white-space: nowrap;
+    }
+    .rec-table-result td:nth-child(7)::before {
+        content: "类型 ";
+    }
+    .rec-table-result td:nth-child(8)::before {
+        content: "理由";
+        display: block;
+        margin-bottom: 2px;
+        color: var(--text-3);
+        font-size: 10px;
     }
 }

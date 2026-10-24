@@ -30,10 +30,10 @@ import java.util.Set;
  * </ol>
  *
  * <p>为什么用 JdbcTemplate 而不是仓储：这是纯报表查询，需要 GROUP BY + 聚合 + LIMIT，
- * 用 JPQL 投影反而要新建一堆接口；读侧不参与任何事务与实体生命周期，
+ * 用 JPQL 投影需要新建多个接口；读侧不参与任何事务与实体生命周期，
  * 与 {@code AiFaultGuard} / {@code AiUsageRecorder} 的取法一致。</p>
  *
- * <p>列一律按<b>下标</b>取：H2 会把未加引号的别名存成大写，按名字取迟早踩到大小写不一致。</p>
+ * <p>列一律按<b>下标</b>取：H2 会把未加引号的别名存成大写，按名字取会遇到大小写不一致。</p>
  */
 @Slf4j
 @Service
@@ -110,7 +110,9 @@ public class RecordQueryService {
      */
     public Overview overview(int hours, int limit) {
         int safeLimit = Math.max(1, Math.min(limit, MAX_LIMIT));
-        LocalDateTime from = DateUtil.now().minusHours(Math.max(1, hours));
+        LocalDateTime from = DateUtil.now().minusHours(hours);
+        // 取一次快照供两处共用：两次取之间若有任务开始/结束，书名与运行中列表会来自不同时刻
+        List<ReviewActivity.Running> snapshot = reviewActivity.snapshot();
 
         List<ChapterFetch> chapters = chapterFetches(from, safeLimit);
         List<VerdictRow> results = verdictLogs(from, safeLimit);
@@ -118,7 +120,7 @@ public class RecordQueryService {
         Set<String> bookIds = new LinkedHashSet<>();
         chapters.forEach(row -> bookIds.add(row.bookId()));
         results.forEach(row -> bookIds.add(row.bookId()));
-        reviewActivity.snapshot().forEach(row -> {
+        snapshot.forEach(row -> {
             if (row.bookId() != null && !row.bookId().isBlank()) {
                 bookIds.add(row.bookId());
             }
@@ -127,7 +129,7 @@ public class RecordQueryService {
 
         long now = System.currentTimeMillis();
         List<RunningRow> running = new ArrayList<>();
-        for (ReviewActivity.Running item : reviewActivity.snapshot()) {
+        for (ReviewActivity.Running item : snapshot) {
             running.add(new RunningRow(item.bookId(), title(titles, item.bookId()), item.kind(),
                     item.kindLabel(), item.engine(), item.detail(),
                     Math.max(0L, (now - item.startedAt()) / 1000)));
@@ -143,7 +145,7 @@ public class RecordQueryService {
                         row.chapterNo(), row.sampleSpan(), row.checkedTime()))
                 .toList();
 
-        return new Overview(Math.max(1, hours), from.format(TIME), running, withTitles, resultsWithTitles,
+        return new Overview(hours, from.format(TIME), running, withTitles, resultsWithTitles,
                 tally(from));
     }
 
@@ -165,7 +167,7 @@ public class RecordQueryService {
 
     /** 判定流水：append-only，新的在前。 */
     private List<VerdictRow> verdictLogs(LocalDateTime from, int limit) {
-        // 按列下标取：H2 会把别名统一成大写，按名取换个驱动就 NPE（见 doc/技术交接.md §9）
+        // 按列下标取：H2 会把别名统一成大写，按名取换个驱动就 NPE
         String sql = """
                 SELECT book_id, engine, model, ai_flag, ai_score, reason, kind, chapters_checked,
                        chapter_no, sample_span, checked_time

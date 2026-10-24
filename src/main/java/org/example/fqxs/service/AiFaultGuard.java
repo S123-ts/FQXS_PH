@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
 /**
  * 失败留证 + 连续失败自动停用。
  *
- * <p>判定要烧额度，所以「这个模型不行」必须做到三件事：<b>留下证据</b>（写
+ * <p>判定消耗额度，因此「这个模型不行」必须做到三件事：<b>留下证据</b>（写
  * {@code ai_engine_fault}，含上游状态码与返回片段）、<b>别再撞同一处</b>（同引擎连续失败
  * 累计到阈值就停用若干小时，默认 3 次 / 48 小时）、<b>能自动回来</b>（到期即可用，
  * 也可在日志页面手动解除）。停用状态写在库里而不是内存，重启不会被洗掉。</p>
@@ -49,22 +49,25 @@ public class AiFaultGuard {
      * 记一次失败：先写事实，再按连续次数决定是否停用。
      *
      * @param engine  引擎标识
-     * @param model   当时用的型号，可为 null
+     * @param model   失败时使用的型号，可为 null
      * @param failure 失败异常，{@link CrawlException} 会带上游状态码与返回片段
-     * @param bookId  当时在判的书，便于复现，可为 null
+     * @param bookId  失败时判定的书籍 ID，便于复现，可为 null
      */
     public void recordFailure(String engine, String model, Throwable failure, String bookId) {
         int status = failure instanceof CrawlException crawl ? crawl.httpStatus() : 0;
         String excerpt = failure instanceof CrawlException crawl ? crawl.responseExcerpt() : null;
         String message = failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
 
+        // reason 列是 NOT NULL：getMessage() 返回空串/空白时 truncate 会给 null，
+        // 插入失败会被下面的 catch 吞掉，导致留证与熔断计数一起静默失效
+        String reason = truncate(message, REASON_LIMIT);
         try {
             faultRepository.save(AiEngineFault.builder()
                     .engine(engine)
                     .model(model)
                     .kind(classify(status, message))
                     .httpStatus(status > 0 ? status : null)
-                    .reason(truncate(message, REASON_LIMIT))
+                    .reason(reason == null ? "(无消息)" : reason)
                     .responseExcerpt(truncate(excerpt, EXCERPT_LIMIT))
                     .bookId(bookId)
                     .occurredTime(DateUtil.now())

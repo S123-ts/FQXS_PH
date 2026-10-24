@@ -35,7 +35,8 @@ class ThirdPartyDepthProbeIT {
         PuaDecoder decoder = new PuaDecoder(mapper);
         OkHttpClient http = new OkHttpClient();
         ChapterClient official = new ChapterClient(http, mapper, new FanqieConfig(), config, decoder);
-        ThirdPartyChapterClient thirdParty = new ThirdPartyChapterClient(http, mapper, config, decoder);
+        ThirdPartyChapterClient thirdParty =
+                new ThirdPartyChapterClient(mapper, decoder, config, new ThirdPartySources(http, config));
 
         List<String> ids = official.listChapterIds(bookId);
         System.out.println("TOTAL=" + ids.size() + " 可读区上限=" + config.getFreeHeadChapters());

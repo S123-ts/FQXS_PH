@@ -33,13 +33,12 @@ import java.util.regex.Pattern;
 /**
  * AI 文判定的外部引擎调用：统一走 OpenAI 兼容对话接口，输出 0–100 的 AI 概率。
  *
- * <p>引擎（GLM / 千帆 / 硅基流动 / 用户自带端点）不再按厂商分支，全部由注册表里的
- * baseUrl / model / key 驱动。2026-10-22 起移除朱雀专用检测通道，判定只保留
- * OpenAI 兼容一种协议。</p>
+ * <p>引擎（GLM / 千帆 / 硅基流动 / 用户自带端点）不按厂商分支，全部由注册表里的
+ * baseUrl / model / key 驱动，判定只保留 OpenAI 兼容一种协议。</p>
  *
  * <p>正文只作为请求体发送，<b>本类不落库、不打日志</b>。正文的唯一落库点是
- * {@code novel_chapter}（2026-10-22 起的官方前 10 章缓存，由 {@code ChapterContentService} 写入）——
- * 这是为了省掉重复抓取，属于刻意保留的例外，改这条口径要同时改《技术交接》§2。</p>
+ * {@code novel_chapter}（官方前 10 章缓存，由 {@code ChapterContentService} 写入），
+ * 目的是省掉重复抓取，属于刻意保留的例外。</p>
  */
 @Slf4j
 @Component
@@ -62,13 +61,11 @@ public class AiDetectClient {
 
     /**
      * 判别提示词不再写死在这里：改由 {@code ai_prompt} 表提供，每次判定从启用池里随机取一条
-     * （见 {@link AiPromptRegistry}）。内置变体与内存兜底版在
-     * {@link AiPromptTemplates}，判据库与变体清单见 doc/AI_DETECTION_PROMPTS.md。
+     * （见 {@link AiPromptRegistry}）。内置变体与内存兜底版在 {@link AiPromptTemplates}。
      */
 
     private final OkHttpClient detectHttpClient;
     private final ObjectMapper objectMapper;
-    private final AiDetectConfig aiDetectConfig;
     private final AiEngineRegistry engineRegistry;
     private final AiKeyStore aiKeyStore;
     private final AiPromptRegistry promptRegistry;
@@ -88,48 +85,17 @@ public class AiDetectClient {
                 // 那条走的是共享 httpClient，不受这里影响
                 .followRedirects(false)
                 .followSslRedirects(false)
-                // SSRF 闸门挂在解析层（线上实测报告 §7.1）：域名保存时是公网、请求时变成内网
+                // SSRF 闸门挂在解析层：域名保存时是公网、请求时可能变成内网
                 // （DNS rebinding）只有建连那一刻的解析结果才作数。三个出口（判定 / 测试引擎 /
                 // 拉取型号）共用这个 client，所以不需要各自记得检查
                 .dns(new GuardedDns())
                 .build();
         this.objectMapper = objectMapper;
-        this.aiDetectConfig = aiDetectConfig;
         this.engineRegistry = engineRegistry;
         this.aiKeyStore = aiKeyStore;
         this.promptRegistry = promptRegistry;
         this.usageRecorder = usageRecorder;
         this.callQuota = callQuota;
-    }
-
-    /** GLM（智谱）密钥是否已配置。 */
-    public boolean isGlmConfigured() {
-        return isFreeEngineConfigured(AiDetectConfig.ENGINE_GLM);
-    }
-
-    /** Qwen（硅基流动）密钥是否已配置。 */
-    public boolean isQwenConfigured() {
-        return isFreeEngineConfigured(AiDetectConfig.ENGINE_QWEN);
-    }
-
-    /**
-     * 免费引擎密钥是否就绪；只认受支持的两个引擎，其余一律按未配置处理。
-     *
-     * @param engine 引擎标识
-     * @return true 表示可用
-     */
-    /**
-     * 引擎是否可用：已启用、OpenAI 兼容通道、且配置了 Key。
-     *
-     * @param engine 引擎标识
-     * @return true 表示可以发起判定
-     */
-    public boolean isFreeEngineConfigured(String engine) {
-        return engineRegistry.find(engine)
-                .filter(AiEngine::isEnabled)
-                .filter(AiEngine::isOpenAiCompatible)
-                .map(record -> aiKeyStore.hasKey(engine))
-                .orElse(false);
     }
 
     /**
@@ -144,12 +110,8 @@ public class AiDetectClient {
      */
     public AiVerdict detectFree(String engine, String model, String text) {
         AiEngine record = engineRegistry.require(engine);
-        if (!record.isOpenAiCompatible()) {
-            throw new IllegalArgumentException("引擎 " + engine + " 不是 OpenAI 兼容通道，无法判定");
-        }
-        if (!record.isEnabled()) {
-            throw new IllegalArgumentException("引擎 " + engine + " 已停用");
-        }
+        // 启用/停用/兼容性由 AiEngineRouter 统一判定；这里只留最后一道 Key 存在性，
+        // 防止两次调用之间密钥被清空
         String apiKey = aiKeyStore.currentKey(engine);
         if (apiKey.isBlank()) {
             throw new IllegalArgumentException("引擎 " + engine + " 未配置 API Key，请在「API 密钥」面板配置");
@@ -284,10 +246,6 @@ public class AiDetectClient {
      */
     private AiVerdict detectByOpenAiCompatible(String url, String apiKey, String model, String engine, String text,
                                                AiPrompt prompt) {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalArgumentException("引擎 " + engine + " 未配置 API Key，请设置对应环境变量后重启应用");
-        }
-
         ObjectNode requestBody = objectMapper.createObjectNode();
         requestBody.put("model", model);
         requestBody.put("temperature", 0.1);

@@ -3,8 +3,10 @@ package org.example.fqxs.bootstrap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.fqxs.constant.CategoryCatalog;
+import org.example.fqxs.entity.Novel;
 import org.example.fqxs.repository.NovelRepository;
 import org.example.fqxs.service.ConfigService;
+import org.example.fqxs.util.NovelTextParser;
 import org.example.fqxs.util.PuaDecoder;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -39,20 +41,34 @@ public class StartupDataInitializer implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        // ApplicationRunner 抛异常会终止整个启动，而“数据库不可用时应用要照常起来、
-        // 读接口 503”是 HANDOVER §3 的契约；回填与播种全部幂等，这次失败下次启动自动补上。
+        // ApplicationRunner 抛异常会终止整个启动，而数据库不可用时应用必须照常启动、
+        // 读接口返回 503；回填与播种全部幂等，本次失败下次启动自动补上。
         // Tomcat 先于 runner 开始监听，窗口内 meta 可能拿到未回填的空配置，完成后缓存自愈。
         try {
-            // @Modifying JPQL 需要事务包裹（HANDOVER §12），不能只靠方法上的 @Transactional：
+            // @Modifying JPQL 需要事务包裹，不能只靠方法上的 @Transactional：
             // 事务开启本身在库不可用时就抛，try/catch 必须罩住整个事务
             transactionTemplate.executeWithoutResult(tx -> {
                 backfillCategoryCodes();
                 backfillPuaText();
+                backfillWordCountWan();
                 configService.seedDefaults();
             });
         } catch (Exception e) {
             log.error("启动初始化失败（数据库不可用？），已跳过，下次启动重试: {}", e.getMessage());
         }
+    }
+
+    /** 字数数值列：历史行只有「123.4万」这样的字符串，解析规则必须与写入路径完全一致。 */
+    private void backfillWordCountWan() {
+        List<Novel> rows = novelRepository.findWordCountRowsToBackfill();
+        if (rows.isEmpty()) {
+            return;
+        }
+        for (Novel novel : rows) {
+            novel.setWordCountWan(NovelTextParser.parseWordCountToWan(novel.getWordCount()));
+        }
+        novelRepository.saveAll(rows);
+        log.info("已回填 {} 行的字数数值（word_count_wan）", rows.size());
     }
 
     private void backfillCategoryCodes() {

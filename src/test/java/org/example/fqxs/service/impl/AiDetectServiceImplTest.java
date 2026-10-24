@@ -108,7 +108,7 @@ class AiDetectServiceImplTest {
                 new AiSampleCollector.CollectedSample("正文正文", "free:mid_recent", "1-2"));
     }
 
-    /** 引擎夹具：统一用 OpenAI 兼容通道（朱雀通道已于 2026-10-22 移除）。 */
+    /** 引擎夹具：统一用 OpenAI 兼容通道（朱雀通道已移除）。 */
     private static AiEngine engine(String id) {
         return AiEngine.builder()
                 .id(id)
@@ -156,10 +156,13 @@ class AiDetectServiceImplTest {
 
     @Test
     void missingKeyFailsBeforeSampling() {
-        when(engineRegistry.hasKey(GLM)).thenReturn(false);
+        // Key 检查已收敛到 AiEngineRouter：这里模拟 router 因无可用引擎而拒绝
+        when(engineRouter.resolveAvoiding(eq(GLM), anyList()))
+                .thenThrow(new IllegalArgumentException("没有可用的免费引擎：请先在「API 密钥」面板配置 Key"));
 
         assertThatThrownBy(() -> aiDetectService.detectFree("b1", GLM, false))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("API 密钥");
         verifyNoInteractions(sampleCollector);
     }
 
@@ -203,20 +206,6 @@ class AiDetectServiceImplTest {
         assertThat(result.cached()).isFalse();
         assertThat(result.aiFlag()).isEqualTo(1);
         verify(sampleCollector).collect(eq("b1"), any());
-    }
-
-    @Test
-    void nonOpenAiCompatibleChannelIsRejectedFromFreeChannel() {
-        // 自定义端点若声明为非 OpenAI 兼容协议，不能走免费判定通道
-        when(engineRegistry.find("classify-engine")).thenReturn(Optional.of(AiEngine.builder()
-                .id("classify-engine").name("classify").baseUrl("https://example.test/classify")
-                .model("m").protocol("classify").builtin(false).enabled(true).autoBan(false).priority(90)
-                .build()));
-
-        assertThatThrownBy(() -> aiDetectService.detectFree("b1", "classify-engine", false))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("不是 OpenAI 兼容通道");
-        verifyNoInteractions(sampleCollector);
     }
 
     @Test

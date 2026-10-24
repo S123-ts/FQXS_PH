@@ -11,7 +11,8 @@
     z-index: var(--z-nav);
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    box-shadow: var(--shadow-sm);
+    /* 右侧内阴影提示“右边还有内容”：滚动条已隐藏，不给提示用户不知道要横滑 */
+    box-shadow: var(--shadow-sm), inset -18px 0 16px -16px rgba(0, 0, 0, 0.3);
     padding: 10px 16px;
     overflow-x: auto; /* 分类多时横向滚动 */
     scrollbar-width: none;
@@ -286,15 +287,14 @@
     font-weight: 500;
     cursor: pointer;
     white-space: nowrap;
-    /* 宽度按内容撑开，绝不允许被压到内容以下：inline-flex 里的文本节点默认
-       flex-shrink:1，父容器空间不足时文字会溢出按钮边界（2026-10-21 截图反馈的
-       “按钮行变形”就是这一条） */
+    /* 宽度按内容撑开，不允许被压缩到内容以下：inline-flex 里的文本节点默认
+       flex-shrink:1，父容器空间不足时文字会溢出按钮边界，“按钮行变形”的成因即此 */
     min-width: max-content;
     transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.05s;
 }
 /* 图标与文字各占一个 flex 槽位：emoji 字形的实际绘制宽度常大于布局宽度
-   （📥 实测布局 17.9px、绘制约 25px，带正溢出），合在同一个文本节点里会
-   直接压住后面的汉字。给它一个固定槽位并居中，溢出量只吃槽位内留白。 */
+   （📥 布局 17.9px、绘制约 25px，正溢出），合在同一个文本节点里会
+   压住后面的汉字。给它一个固定槽位并居中，溢出量由槽位内留白吸收。 */
 .btn-ico {
     flex: 0 0 auto;
     display: inline-block;
@@ -763,7 +763,7 @@
     text-underline-offset: 3px;
 }
 /* ---------- 行内「更多」菜单 ---------- */
-/* 详情与逐章校验收进菜单（3 引擎时行内会摆 8–9 颗控件，标题被挤成两行）。
+/* 详情与逐章校验收进菜单（3 引擎时行内排列 8–9 个控件，标题被挤成两行）。
    徽章/关注/拉黑留在外面：前者是结论，后两者是对这本书的标记动作 */
 .row-more {
     position: relative;
@@ -879,9 +879,17 @@
     font-size: var(--fs-sm);
     color: var(--text-3);
 }
+/* 14px 正文不能拿主色当文字色：白底对比度不足，用专用文字档 accent-text */
 .book-item .info-row .author {
-    color: var(--accent);
+    color: var(--accent-text);
     font-weight: 500;
+}
+/* 第三方评分：与作者同一行；0/空不渲染 */
+.book-item .info-row .rating {
+    color: var(--warn);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 .book-item .info-row .chip {
     display: inline-flex;
@@ -1063,6 +1071,10 @@
 .batch-bar[hidden] {
     display: none;
 }
+/* 没有选中行时不占位：桌面原本常驻一条全是 disabled 按钮的空条，像坏掉的控件 */
+.batch-bar:not(.has-selection) {
+    display: none;
+}
 .batch-all {
     display: inline-flex;
     align-items: center;
@@ -1123,11 +1135,12 @@ button.ai-badge:disabled {
     border-color: #f0d59a;
     color: #8a5a00;
 }
-/* “非 AI”是弱信息：灰底灰字，不与红/黄抢注意力 */
+/* “非 AI”是弱信息：灰底灰字，不与红/黄抢注意力；
+   文字用 text-2 而非 text-3：这是列表里出现频率最高的结论，13px 灰要过 AA */
 .ai-badge.human {
     background: var(--surface-3);
     border-color: var(--border);
-    color: var(--text-3);
+    color: var(--text-2);
     font-weight: 500;
 }
 .ai-badge.zq {
@@ -1144,8 +1157,7 @@ button.ai-badge:disabled {
 
 /* AI 工具组：「选引擎 → 取样 → 校验本页 / AI 初筛」是一个完整工作流，
    用淡底 + 描边包成一个整体，与旁边的单颗按钮区分开。
-   组本身不用 .ctl-combo 包（那是「下拉+输入框连体」的语义，align-items:stretch
-   会把 label 拉成两行），但组内可以放独立的 .ctl-combo（取样策略 + 章数）。 */
+   组内不放 .ctl-combo：取样章数已随三档策略移除，只剩独立下拉。 */
 .ctl-ai {
     gap: 6px;
     /* 桌面宽度够时一行排开；1000px 附近放不下就组内折行——
@@ -1305,10 +1317,10 @@ button.ai-badge:disabled {
     color: var(--accent);
     background: var(--accent-soft);
 }
-/* 命中与已查完的视觉区分（2026-10-22 调整）：
-   命中不再是禁用态——红色只表达结论，仍可继续校验剩余章节，所以必须有 hover 反馈；
-   已查完才是真正的终态，用虚线边框 + 低对比，和"可点"的实线按钮一眼分得开。
-   旧样式两者都是实心浅灰底，肉眼几乎分不出，用户会误以为命中的按钮"点不动"。 */
+/* 命中与已查完的视觉区分：
+   命中不是禁用态——红色只表达结论，仍可继续校验剩余章节，因此必须有 hover 反馈；
+   已查完是终态，用虚线边框 + 低对比，与可点击的实线按钮区分。
+   两者若都用实心浅灰底则难以分辨，会被误认为命中的按钮不可点击。 */
 .zq-btn.hit {
     background: #fdecea;
     border-color: #f5c2bd;
@@ -1391,9 +1403,9 @@ button.ai-badge:disabled {
    ① 已加载过的内容不销毁：加载中只罩半透明幕布 + 视口居中转圈；
    ② 新内容一次性替换后用轻量渐显入场（.is-entering，行间 40ms 阶梯）；
    ③ 请求可能几十毫秒就回来：幕布延迟 120ms 才显示，快加载不闪、慢加载有反馈。 */
-/* 幕布默认透明，仅 .is-loading 时淡入（0.18s），摘类即淡出。
+/* 幕布默认透明，仅 .is-loading 时淡入（0.18s），移除类即淡出。
    非加载态必须 pointer-events: none：opacity:0 的伪元素依然占据栈层并参与命中测试，
-   会挡住行内按钮的点击（playwright 实测 #bookList intercepts pointer events）；
+   会挡住行内按钮的点击（#bookList intercepts pointer events）；
    加载中才切回 auto，禁止操作即将被替换的旧列表。 */
 .book-list::before {
     content: "";
@@ -2003,12 +2015,18 @@ button.ai-badge:disabled {
         border-style: dashed;
         color: var(--text-3);
     }
-    /* 拉黑按钮在深底上用实心红太抢眼，降为深一档的红 */
+    /* 拉黑与亮色同语义：常态描边，只有 hover / 确认态才填充；
+       实心红会让每屏 8 颗行内按钮变成最抢眼的元素 */
     .block-btn {
-        background: #c8443a;
+        background: transparent;
     }
     .block-btn:hover {
-        background: #d9564b;
+        background: rgba(255, 107, 94, 0.16);
+        color: var(--danger);
+    }
+    .block-btn.confirm {
+        background: #c8443a;
+        color: #fff;
     }
     .block-btn.restore {
         background: #2f8f5b;

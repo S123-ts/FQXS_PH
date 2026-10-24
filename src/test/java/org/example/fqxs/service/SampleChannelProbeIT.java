@@ -3,7 +3,9 @@ package org.example.fqxs.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.OkHttpClient;
 import org.example.fqxs.client.ChapterClient;
+import org.example.fqxs.client.ThirdPartyCatalogClient;
 import org.example.fqxs.client.ThirdPartyChapterClient;
+import org.example.fqxs.client.ThirdPartySources;
 import org.example.fqxs.config.AiDetectConfig;
 import org.example.fqxs.config.FanqieConfig;
 import org.example.fqxs.exception.CrawlException;
@@ -44,12 +46,14 @@ class SampleChannelProbeIT {
         AiDetectConfig config = new AiDetectConfig();
         PuaDecoder decoder = new PuaDecoder(mapper);
         ChapterClient official = new ChapterClient(http, mapper, new FanqieConfig(), config, decoder);
-        ThirdPartyChapterClient thirdParty = new ThirdPartyChapterClient(http, mapper, config, decoder);
+        ThirdPartyChapterClient thirdParty =
+                new ThirdPartyChapterClient(mapper, decoder, config, new ThirdPartySources(http, config));
         NovelChapterRepository repository = Mockito.mock(NovelChapterRepository.class);
         Mockito.when(repository.findByItemId(Mockito.anyString())).thenReturn(Optional.empty());
         ChapterContentService chapterStore = new ChapterContentService(repository, official,
                 new ChapterTextCleaner(decoder), config);
-        AiSampleCollector collector = new AiSampleCollector(official, thirdParty, chapterStore, config);
+        AiSampleCollector collector = new AiSampleCollector(directoryService(mapper, official, http, config),
+                thirdParty, chapterStore, config, new UpstreamThrottle());
 
         AiSampleCollector.CollectedSample head = collector.collect(bookId, SampleSpec.of("head", 0));
         System.out.println("默认档 → 章节=[" + chapters(head.text()) + "] 字数=" + head.text().length()
@@ -71,11 +75,21 @@ class SampleChannelProbeIT {
         // 通道关闭时最新档必须直接失败，不许偷偷降级成前 10 章
         AiDetectConfig offline = new AiDetectConfig();
         offline.setThirdPartyEnabled(false);
-        ThirdPartyChapterClient disabled = new ThirdPartyChapterClient(http, mapper, offline, new PuaDecoder(mapper));
-        AiSampleCollector offlineCollector = new AiSampleCollector(official, disabled, chapterStore, offline);
+        ThirdPartyChapterClient disabled = new ThirdPartyChapterClient(mapper, new PuaDecoder(mapper),
+                offline, new ThirdPartySources(http, offline));
+        AiSampleCollector offlineCollector = new AiSampleCollector(directoryService(mapper, official, http, offline),
+                disabled, chapterStore, offline, new UpstreamThrottle());
         assertThrows(CrawlException.class,
                 () -> offlineCollector.collect(bookId, SampleSpec.of("recent", 0)),
                 "通道关闭时最新档应报错而不是降级");
+    }
+
+    /** 目录取数（官方优先、失败回退第三方）：探针按当前配置现组一条链路。 */
+    private ChapterDirectoryService directoryService(ObjectMapper mapper, ChapterClient official,
+                                                     OkHttpClient http, AiDetectConfig config) {
+        return new ChapterDirectoryService(official,
+                new ThirdPartyCatalogClient(mapper, new ThirdPartySources(http, config)),
+                new UpstreamThrottle());
     }
 
     /** 从样本里抽回章号：取样器写入的是「【第N章】」标记。 */

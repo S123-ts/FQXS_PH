@@ -25,12 +25,14 @@
     --border-strong: #ccd3de;
     --text-1: #212733;
     --text-2: #4c5666;
-    --text-3: #8a93a5;
+    --text-3: #6b7484;        /* 13px 正文色：对白底约 4.6:1，满足 WCAG AA */
     --accent: #ff3d00;        /* 番茄红，主操作 */
     --accent-hover: #e53600;
+    --accent-text: #c93a00;   /* 主色当 14px 正文用：对白底约 5.0:1（accent-hover 只有 4.32） */
     --accent-soft: #fff0ea;   /* 主色淡底，用于悬停/色块 */
     --accent-soft-2: #ffe4da; /* 主色淡底的悬停档 */
     --info: #2563eb;
+    --info-soft: #eaf1fe;     /* 关注标记的已选底：与拉黑的红保持两套语义 */
     --success: #1a7f37;
     --success-soft: #e8f5ec;
     --danger: #d93025;
@@ -88,12 +90,14 @@
         --border-strong: #3a4453;
         --text-1: #e7ecf3;
         --text-2: #a9b4c3;
-        --text-3: #788394;
+        --text-3: #8c97a8;
         --accent: #ff5a2b;
         --accent-hover: #ff7346;
+        --accent-text: #ff8a63;
         --accent-soft: #2b1a13;
         --accent-soft-2: #3a2118;
         --info: #6ea8fe;
+        --info-soft: #17233a;
         --success: #4cc38a;
         --success-soft: #14251c;
         --danger: #ff6b5e;
@@ -109,9 +113,10 @@
         --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.65);
         --shadow-accent: 0 2px 10px rgba(255, 90, 43, 0.35);
     }
-    /* 深色下表单原生控件（下拉箭头/数字步进器）跟着转深，否则是一块白 */
+    /* 深色下表单原生控件（下拉箭头/数字步进器/勾选框）跟着转深，否则是一块白 */
     .select,
-    .input {
+    .input,
+    input[type="checkbox"] {
         color-scheme: dark;
     }
 }

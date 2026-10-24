@@ -32,7 +32,7 @@ public class FanqieConfig {
 
         private int appId = 2503;
         private int rankListType = 3;
-        /** 1=男频 0=女频；与 rankMold、category_id 共同决定榜单（实测影响寻址）。 */
+        /** 1=男频 0=女频；与 rankMold、category_id 共同决定榜单寻址。 */
         private int gender = 1;
         /** 2=阅读榜 1=新书榜；仅作排查兜底，运行时以 app_config 的 rank_type 为准。 */
         private int rankMold = 2;
@@ -56,9 +56,9 @@ public class FanqieConfig {
     }
 
     /**
-     * 排行榜接口寻址三元组（上游实测）：gender 决定男/女频（1=男 0=女），
+     * 排行榜接口寻址三元组：gender 决定男/女频（1=男 0=女），
      * rankMold 决定榜单类型（2=阅读榜 1=新书榜），category_id 是分类叶子 ID；
-     * 三者任一不同就是不同的榜。rank_list_type 与 app_id 恒定不参与切换。
+     * 三者任一不同即为不同榜单。rank_list_type 与 app_id 恒定不参与切换。
      */
     public String buildRankUrl(int gender, int subcategoryId, int rankMold, Integer page, Integer size) {
         int safePage = clampPage(page);

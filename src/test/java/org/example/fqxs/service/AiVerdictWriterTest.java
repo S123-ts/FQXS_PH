@@ -104,7 +104,7 @@ class AiVerdictWriterTest {
 
     @Test
     void verifyWritesOneRowPerChapterWithProgress() {
-        writer.writeVerify(BOOK_ID, GLM, MODEL, 3, 62.0, "第 4 章可疑", 4, 4, "p2-dialogue", false);
+        writer.writeVerify(BOOK_ID, GLM, MODEL, 3, 62.0, "第 4 章可疑", 4, 4, "p2-dialogue", false, "official:head");
 
         NovelAiVerdictLog row = captureLog();
         assertThat(row.getKind()).isEqualTo(NovelAiVerdictLog.KIND_VERIFY);
@@ -113,11 +113,12 @@ class AiVerdictWriterTest {
         assertThat(row.getChapterNo()).isEqualTo(4);
         assertThat(row.getAiScore()).isEqualTo(62.0);
         assertThat(row.getPromptId()).isEqualTo("p2-dialogue");
+        assertThat(row.getSampleMode()).isEqualTo("official:head");
     }
 
     @Test
     void progressStepUsesProgressKind() {
-        writer.writeProgress(BOOK_ID, GLM, MODEL, 1, 18.0, "", 10, 10, "p1-total");
+        writer.writeProgress(BOOK_ID, GLM, MODEL, 1, 18.0, "", 10, 10, "p1-total", "official:head");
 
         NovelAiVerdictLog row = captureLog();
         assertThat(row.getKind()).isEqualTo(NovelAiVerdictLog.KIND_PROGRESS);

@@ -19,7 +19,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * “数据库不可用时应用照样能启动”是 HANDOVER §3 的契约，而 ApplicationRunner 抛异常
+ * 数据库不可用时应用仍须启动，而 ApplicationRunner 抛异常
  * 会终止整个启动——所以 runner 必须吞掉初始化失败只记日志。这两个用例钉住两条失败路径：
  * 事务开启即失败（库连不上）与回填途中失败（磁盘/锁）。
  */

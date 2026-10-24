@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * 免费判定编排：单本判定与批量初筛。
  *
- * <p>2026-10-22 拆分后只保留编排职责：取样交给 {@link AiSampleCollector}、
+ * <p>只保留编排职责：取样交给 {@link AiSampleCollector}、
  * 落库交给 {@link AiVerdictWriter}、逐章校验交给 {@link AiVerifyService}、
  * 状态查询交给 {@link AiDetectStatusService}。</p>
  */
@@ -75,14 +75,14 @@ public class AiDetectServiceImpl implements AiDetectService {
     public FreeDetectResult detectFree(String bookId, String engine, boolean force, SampleSpec sample,
                                        boolean rerun) {
         ensureEnabled();
-        // engine 为空或 random 时随机挑一个可用引擎，并避开这本书已判过的引擎
+        // engine 为空或 random 时随机挑一个可用引擎，并避开这本书已判过的引擎。
+        // 可用性判定（启用/未暂停/兼容/有 Key）只由 router 负责，这里不再重复校验
         String actualEngine = engineRouter.resolveAvoiding(engine, judgedEngines(bookId));
-        requireFreeEngine(actualEngine);
         List<String> models = engineRegistry.modelsOf(actualEngine);
         // 每次判定在勾选的型号池里随机取一个：多模型分摊额度与限流
         String pickedModel = engineRegistry.pickModel(actualEngine);
 
-        // 0. 幂等守卫：该引擎的**任一勾选型号**已有初筛结论就复用（同一本书不重复烧额度）；
+        // 0. 幂等守卫：该引擎的任一勾选型号已有初筛结论就复用（同一本书不重复消耗额度）；
         //    切型号池后新池里的型号都没有结论，会真正重判。
         if (!force) {
             NovelAiVerdict existing = verdictRepository
@@ -163,8 +163,7 @@ public class AiDetectServiceImpl implements AiDetectService {
      * @return true 表示可直接复用为初筛结论
      */
     private boolean isInitialSweepVerdict(NovelAiVerdict row) {
-        return row != null && row.getAiFlag() != null && row.getAiFlag() > 0
-                && (row.getChaptersChecked() == null || row.getChaptersChecked() == 0);
+        return row != null && row.getAiFlag() > 0 && row.getChaptersChecked() == 0;
     }
 
     @Override
@@ -178,7 +177,8 @@ public class AiDetectServiceImpl implements AiDetectService {
         if (AiEngineRouter.isRandom(engine)) {
             throw new IllegalArgumentException("批量初筛需要指定具体引擎（random 只用于单本判定与校验本页）");
         }
-        requireFreeEngine(engine);
+        // 与单本判定共用同一套可用性判定：显式引擎在 router 里同样会被完整校验
+        engineRouter.resolveAvoiding(engine, List.of());
 
         int requestedLimit = limit <= 0 ? aiDetectConfig.getAutoSweepLimit() : limit;
         int safeLimit = Math.max(1, Math.min(requestedLimit, aiDetectConfig.getSweepLimitMax()));
@@ -288,26 +288,6 @@ public class AiDetectServiceImpl implements AiDetectService {
                 .map(NovelAiVerdict::getEngine)
                 .distinct()
                 .toList();
-    }
-
-    /** 免费通道的引擎校验：停用、非 OpenAI 兼容、未配 Key 都拒绝。 */
-    private void requireFreeEngine(String engine) {
-        AiEngine record = engineRegistry.find(engine)
-                .orElseThrow(() -> new IllegalArgumentException("不支持的免费引擎: " + engine));
-        if (!record.isOpenAiCompatible()) {
-            throw new IllegalArgumentException("引擎 " + engine + " 不是 OpenAI 兼容通道，不能用于初筛");
-        }
-        if (!record.isEnabled()) {
-            throw new IllegalArgumentException("引擎 " + engine + " 已停用，请在「API 密钥」面板启用");
-        }
-        if (record.isSuspended()) {
-            // 自动停用是"连续失败太多"的结果，不该被一次手动点击绕开
-            throw new IllegalArgumentException("引擎 " + engine + " 已自动停用至 " + record.getDisableUntil()
-                    + "，原因：" + record.getDisableReason());
-        }
-        if (!engineRegistry.hasKey(engine)) {
-            throw new IllegalArgumentException("引擎 " + engine + " 未配置 API Key，请在「API 密钥」面板配置");
-        }
     }
 
     /** 概率保留两位小数：库字段是 DECIMAL(5,2)，多余精度存进去会被静默四舍五入。 */

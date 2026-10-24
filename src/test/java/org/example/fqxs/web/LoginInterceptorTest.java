@@ -14,6 +14,13 @@ class LoginInterceptorTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private final LoginInterceptor interceptor = new LoginInterceptor(mapper);
 
+    /** 书源端点在登录门白名单里：阅读 App 没有浏览器会话，靠可选令牌自保护。 */
+    @Test
+    void bookSourceEndpointsBypassTheSessionGate() {
+        assertTrue(java.util.Arrays.asList(LoginInterceptor.WHITELIST).contains("/api/bs/**"),
+                "Legado 书源端点必须在登录门白名单里");
+    }
+
     @Test
     void allowsAuthenticatedSession() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/rank/meta");
@@ -63,7 +70,7 @@ class LoginInterceptorTest {
         assertEquals(302, response.getStatus());
     }
 
-    /** 文档与 actuator 这类工具路径回 JSON 401，不回 302——否则 curl 拿到一坨 HTML。 */
+    /** 文档与 actuator 这类工具路径回 JSON 401，不回 302——否则 curl 拿到 HTML。 */
     @Test
     void treatsToolingPathsAsApi() throws Exception {
         MockHttpServletResponse docs = new MockHttpServletResponse();

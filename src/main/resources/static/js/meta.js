@@ -55,8 +55,8 @@ export function categoryDisplayName(code) {
     return cat ? cat.name : '';
 }
 
-/* 按性别分组；约定 gender=1 男频、gender=0 女频，用 Number() 容忍后端
-   万一给成字符串。未知值落进女频组而不是凭空消失。
+/* 按性别分组：gender=1 男频、gender=0 女频，用 Number() 容忍后端
+   返回字符串的情况。未知值归入女频组而不是丢弃。
    includeHidden 为真返回全量目录（设置面板用），否则只返回 displayed（导航用） */
 function groupByGender(includeHidden) {
     const list = includeHidden ? getCategories() : getDisplayedCategories();

@@ -221,9 +221,6 @@ public class RankServiceImpl implements RankService {
     /** 写库失败不阻断本次展示（数据库可能没启动），但结果会通过 dbSaved 透出。 */
     private boolean persist(List<NovelInfo> novels, CategoryCatalog category, String rankType,
                             boolean pruneStale) {
-        if (novels.isEmpty()) {
-            return true;
-        }
         try {
             NovelService.UpsertSummary summary =
                     novelService.saveOrUpdateNovelList(novels, category, rankType, pruneStale);
@@ -245,7 +242,7 @@ public class RankServiceImpl implements RankService {
     /**
      * 本次响应是否覆盖了整个榜单。只有首页且拿满 total_num 才允许清理掉榜数据，
      * 否则“每页显示 30”的一页会把 31~100 名当成掉榜数据删掉。
-     * 四种 (gender, rankMold) 组合的 total_num 实测恒为 100，该判定对男女频/新旧榜通用。
+     * 四种 (gender, rankMold) 组合的 total_num 恒为 100，该判定对男女频/新旧榜通用。
      */
     private boolean coversWholeList(JsonNode root, int page, int fetched) {
         if (page != 1 || fetched <= 0) {

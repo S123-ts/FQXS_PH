@@ -9,8 +9,8 @@ import java.util.Set;
  *
  * <p>拆出来是因为两个调用方在不同层：{@code service/AiEndpointNormalizer} 在保存配置时判字面量，
  * {@code client/GuardedDns} 在 OkHttp 解析域名后判真实地址。判定规则必须只有一份，
- * 否则两边各写一遍必然漂移（历史教训：文本前缀黑名单只挡住了 {@code 169.254.} 开头的写法，
- * 却放过了 {@code 2852039166} 这种十进制整数编码）。</p>
+ * 否则两边各写一遍必然漂移（文本前缀黑名单只能挡住 {@code 169.254.} 开头的写法，
+ * 会放过 {@code 2852039166} 这类十进制整数编码）。</p>
  */
 public final class HostAddressPolicy {
 

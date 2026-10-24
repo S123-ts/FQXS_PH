@@ -38,7 +38,7 @@ public class AiEngineFault {
     @Column(nullable = false, length = 40)
     private String engine;
 
-    /** 当时用的型号；型号级换着试之后，这一列才能区分是引擎坏了还是某个型号坏了。 */
+    /** 失败时使用的型号；型号级切换后，该列用于区分引擎故障与型号故障。 */
     @Column(length = 80)
     private String model;
 
@@ -58,7 +58,7 @@ public class AiEngineFault {
     @Column(name = "response_excerpt", length = 1000)
     private String responseExcerpt;
 
-    /** 当时在判哪本书，便于原样复现。 */
+    /** 失败时判定的书籍 ID，便于复现。 */
     @Column(name = "book_id", length = 50)
     private String bookId;
 

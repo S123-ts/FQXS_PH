@@ -29,7 +29,7 @@ public class AiEngineSeeder implements ApplicationRunner {
 
     private static final String GLM_MODELS =
             "glm-4-flash,glm-4.7-flash,glm-4-flash-250414,glm-4.5-flash,glm-4.7,glm-5.3-flash";
-    // 2026-10-22 实测：ERNIE-Speed 系列已不在千帆在线服务清单，出厂清单改放实测 200 的型号
+    // ERNIE-Speed 系列已不在千帆在线服务清单，出厂清单只列可用型号
     private static final String QIANFAN_MODELS =
             "ernie-4.5-turbo-32k,ernie-4.5-turbo-128k,deepseek-v4-flash-0731,glm-5.3-flash";
     private static final String QWEN_MODELS =

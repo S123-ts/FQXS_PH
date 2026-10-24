@@ -21,6 +21,9 @@ import java.time.LocalDateTime;
  *
  * <p><b>失败放行</b>：库不可用（文件被锁、迁移没跑）时 {@code count} 会抛 {@code DataAccessException}，
  * 这里吞掉并放行。配额是「省钱」的护栏，不是安全边界；让它把整条判定链路变成 503 是本末倒置。</p>
+ *
+ * <p><b>并发下可能小幅越界</b>：行数是调用之后异步写的，{@code sweep-concurrency=3} 时
+ * 最多同时越过上限 2 次。这是刻意的取舍——为两三次超额引入预占计数会多一份会漂移的真值。</p>
  */
 @Slf4j
 @Component
@@ -85,7 +88,7 @@ public class AiDailyQuota implements CallQuota {
         cachedAt = 0L;
     }
 
-    /** 当天起点（供日志与单测对齐口径）。 */
+    /** 当天起点（供日志与单测对齐）。 */
     static LocalDateTime todayStart() {
         return LocalDate.now().atStartOfDay();
     }

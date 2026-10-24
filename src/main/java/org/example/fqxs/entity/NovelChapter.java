@@ -16,8 +16,8 @@ import java.time.LocalDateTime;
 /**
  * 章节正文缓存：目前只存「官方可读区（前 10 章）」这一档。
  *
- * <p>只做缓存，不做业务主数据：{@code novel_rank} 才是书籍本体。丢掉整张表只会让下一次
- * 判定重新抓一遍上游，不会丢结论——所以这里没有任何外键与级联。</p>
+ * <p>该表仅作缓存，不作业务主数据：{@code novel_rank} 是书籍本体。清空整表只会让下一次
+ * 判定重新抓取上游，不影响结论，因此不设外键与级联。</p>
  *
  * <p>{@code pua_unresolved} 记的是<b>解码之后</b>仍残留的私用区字符数。它正常恒为 0；
  * 出现非 0 说明 {@code pua-charset.json} 已经落后于上游的混淆表，这是唯一的可观察信号。</p>
@@ -43,7 +43,7 @@ public class NovelChapter {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** 书籍 ID：与 novel_rank.book_id 同口径，但不建外键（缓存不值得为它加约束）。 */
+    /** 书籍 ID：与 novel_rank.book_id 一致，但不建外键（缓存不需要该约束）。 */
     @Column(name = "book_id", nullable = false, length = 50)
     private String bookId;
 
@@ -62,7 +62,7 @@ public class NovelChapter {
     @Column(nullable = false, length = CONTENT_MAX_LENGTH)
     private String content;
 
-    /** 清洗后字数（按字符计，含标点），与 ChapterSample.chars 同口径。 */
+    /** 清洗后字数（按字符计，含标点），与 ChapterSample.chars 一致。 */
     @Column(name = "char_count", nullable = false)
     private Integer charCount;
 

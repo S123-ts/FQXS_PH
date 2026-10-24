@@ -12,16 +12,16 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 /**
- * 全站登录门（安全测试报告 H1）：除白名单外，所有请求都必须带一个已登录的会话。
+ * 全站登录门：除白名单外，所有请求都必须带一个已登录的会话。
  *
  * <p>与另外两个拦截器的分工：</p>
  * <ul>
- *   <li>{@link RankWriteInterceptor}：挡「别的站点冒用你的浏览器」（CSRF，看 {@code X-Rank-Token}）；</li>
+ *   <li>{@link RankWriteInterceptor}：挡「其他站点冒用浏览器会话」（CSRF，看 {@code X-Rank-Token}）；</li>
  *   <li>{@link AdminTokenInterceptor}：挡「没有管理令牌的删库请求」；</li>
- *   <li>本类：挡「任何知道地址的人」（未授权访问）。三者叠加，不是替代关系。</li>
+ *   <li>本类：挡「任何知道地址的请求」（未授权访问）。三者叠加，不是替代关系。</li>
  * </ul>
  *
- * <p>响应形态按调用方分流，否则会出现「接口拿到一坨 HTML」或「浏览器看到一段 JSON」：</p>
+ * <p>响应形态按调用方分流，否则会出现「接口返回 HTML」或「浏览器收到 JSON」：</p>
  * <ul>
  *   <li>接口请求 → 401 + {@code X-Auth-Required: 1}（前端凭这个头跳登录页，不用猜文案）；</li>
  *   <li>页面请求 → 302 到 {@code /login?redirect=原路径}。</li>
@@ -44,13 +44,16 @@ public class LoginInterceptor implements HandlerInterceptor {
      * <ul>
      *   <li>{@code /error}：异常转发路径，放行否则匿名访问的 404 会变成「跳登录」；</li>
      *   <li>{@code /actuator/health}：反代/探针用，报告已确认它只回 UP/DOWN；</li>
-     *   <li>{@code /api/auth/**}：登录、登出、当前身份——不放行连登录都调不到。</li>
+     *   <li>{@code /api/auth/**}：登录、登出、当前身份——不放行连登录都调不到；</li>
+     *   <li>{@code /api/bs/**}：Legado 书源端点，阅读 App 没有浏览器会话。它由
+     *       {@link BookSourceTokenInterceptor} 按可选令牌单独把关，公网暴露必须配置令牌。</li>
      * </ul>
      */
     public static final String[] WHITELIST = {
             "/login",
             "/login.html",
             "/api/auth/**",
+            "/api/bs/**",
             "/css/base.css",
             "/css/login.css",
             "/js/login.js",

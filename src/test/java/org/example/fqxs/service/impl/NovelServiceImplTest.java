@@ -15,6 +15,10 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -22,7 +26,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -180,95 +186,105 @@ class NovelServiceImplTest {
         verify(novelRepository, never()).deleteStaleByCategoryCodeAndRankType(any(), any(), any(Collection.class));
     }
 
+    /** 默认视图：热度排序与“排除拉黑”都下推给 SQL，服务层只做参数归一。 */
     @Test
-    void blockedBooksAreHiddenAndOrderFollowsReaderCount() {
-        Novel low = novel("1", "少人读", 100L);
-        Novel blocked = novel("2", "已拉黑", 9999L);
-        blocked.setIsBlocked(true);
-        Novel mid = novel("3", "中等热度", 300L);
-        when(novelRepository.findByRankType("read")).thenReturn(List.of(low, blocked, mid));
+    void defaultViewPushesHeatSortAndUnblockedFilter() {
+        when(novelRepository.pageAllBooks(eq("read"), eq(false), eq(false), eq(""),
+                isNull(), isNull(), eq(""), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(novel("3", "中等热度", 300L), novel("1", "少人读", 100L))));
 
-        List<Novel> result = service.findAllBooksFiltered(List.of(), null, null, false, "read");
-        assertEquals(List.of("3", "1"), result.stream().map(Novel::getBookId).toList());
+        Page<Novel> result = service.findAllBooksFiltered(List.of(), null, null, false, false, "read", 1, 30, null);
+
+        assertEquals(List.of("3", "1"), result.getContent().stream().map(Novel::getBookId).toList());
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(novelRepository).pageAllBooks(eq("read"), eq(false), eq(false), eq(""),
+                isNull(), isNull(), eq(""), pageable.capture());
+        assertEquals(Sort.Direction.DESC,
+                pageable.getValue().getSort().getOrderFor("readCountRaw").getDirection());
+        assertEquals(0, pageable.getValue().getPageNumber());
+        assertEquals(30, pageable.getValue().getPageSize());
     }
 
     /** 拉黑必须有出口，否则只能进数据库改：blockedOnly 就是那个“已拉黑”列表，按拉黑时刻新→旧。 */
+    /** “已拉黑”列表按拉黑时刻新→旧；没有时刻的历史行排最后（SQL 的 nullsLast）。 */
     @Test
     void blockedOnlyViewSortsByNewestBlockAndParksLegacyRowsLast() {
-        Novel legacy = novel("1", "没有拉黑时刻的历史行", 9999L);
-        legacy.setIsBlocked(true);
-        Novel earlyBlock = novel("2", "先拉的", 1L);
-        earlyBlock.setIsBlocked(true);
-        earlyBlock.setBlockedTime(LocalDateTime.of(2026, 9, 18, 10, 0));
-        Novel lateBlock = novel("3", "后拉的", 2L);
-        lateBlock.setIsBlocked(true);
-        lateBlock.setBlockedTime(LocalDateTime.of(2026, 9, 19, 10, 0));
-        when(novelRepository.findByRankType("read")).thenReturn(List.of(legacy, earlyBlock, lateBlock));
+        when(novelRepository.pageAllBooks(eq("read"), eq(true), eq(false), eq(""),
+                isNull(), isNull(), eq(""), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(novel("3", "后拉的", 2L), novel("2", "先拉的", 1L),
+                        novel("1", "没有拉黑时刻的历史行", 9999L))));
 
-        List<Novel> result = service.findAllBooksFiltered(List.of(), null, null, true, "read");
-        assertEquals(List.of("3", "2", "1"), result.stream().map(Novel::getBookId).toList());
+        Page<Novel> result = service.findAllBooksFiltered(List.of(), null, null, true, false, "read", 1, 30, null);
+
+        assertEquals(List.of("3", "2", "1"), result.getContent().stream().map(Novel::getBookId).toList());
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(novelRepository).pageAllBooks(eq("read"), eq(true), eq(false), eq(""),
+                isNull(), isNull(), eq(""), pageable.capture());
+        Sort.Order byBlocked = pageable.getValue().getSort().getOrderFor("blockedTime");
+        assertEquals(Sort.Direction.DESC, byBlocked.getDirection());
+        assertEquals(Sort.NullHandling.NULLS_LAST, byBlocked.getNullHandling());
     }
 
     /** blockedOnly 与分类 codes 是交集：只看“所选分类里的拉黑行”，其他分类的拉黑行不得出现——
         前端“只看已拉黑”永远带着分类范围发请求，这条交集语义没有任何其他用例钉住。 */
     @Test
     void blockedOnlyViewIntersectsWithSelectedCategories() {
-        Novel blockedInSelected = novel("1", "所选分类的拉黑行", 10L);
-        blockedInSelected.setIsBlocked(true);
-        Novel visibleInSelected = novel("2", "所选分类的正常行", 20L);
-        when(novelRepository.findByCategoryCodeInAndRankType(List.of("M_WESTERN_FANTASY"), "read"))
-                .thenReturn(List.of(blockedInSelected, visibleInSelected));
+        when(novelRepository.pageAllBooksByCodes(eq(List.of("M_WESTERN_FANTASY")), eq("read"),
+                eq(true), eq(false), eq(""), isNull(), isNull(), eq(""), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(novel("1", "所选分类的拉黑行", 10L))));
 
-        List<Novel> result = service.findAllBooksFiltered(List.of("M_WESTERN_FANTASY"), null, null, true, "read");
+        Page<Novel> result = service.findAllBooksFiltered(
+                List.of("M_WESTERN_FANTASY"), null, null, true, false, "read", 1, 30, null);
 
-        assertEquals(List.of("1"), result.stream().map(Novel::getBookId).toList());
+        assertEquals(List.of("1"), result.getContent().stream().map(Novel::getBookId).toList());
+        verify(novelRepository).pageAllBooksByCodes(eq(List.of("M_WESTERN_FANTASY")), eq("read"),
+                eq(true), eq(false), eq(""), isNull(), isNull(), eq(""), any(Pageable.class));
+    }
+
+    /** 字数档位转成开/闭区间：100w以上 = >100，100w以内 = <=100。 */
+    @Test
+    void wordRangeIsTurnedIntoNumericBounds() {
+        when(novelRepository.pageAllBooks(eq("read"), eq(false), eq(false), eq(""),
+                eq(100.0), isNull(), eq(""), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+        when(novelRepository.pageAllBooks(eq("read"), eq(false), eq(false), eq(""),
+                isNull(), eq(100.0), eq(""), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+
+        service.findAllBooksFiltered(null, "100w以上", null, false, false, "read", 1, 30, null);
+        service.findAllBooksFiltered(null, "100w以内", null, false, false, "read", 1, 30, null);
+
+        verify(novelRepository).pageAllBooks(eq("read"), eq(false), eq(false), eq(""),
+                eq(100.0), isNull(), eq(""), any(Pageable.class));
+        verify(novelRepository).pageAllBooks(eq("read"), eq(false), eq(false), eq(""),
+                isNull(), eq(100.0), eq(""), any(Pageable.class));
     }
 
     @Test
-    void wordRangeFilterUnderstandsWanAndRawNumbers() {
-        Novel small = novel("1", "八十万", 1L);
-        small.setWordCount("80万");
-        Novel medium = novel("2", "一百二十万", 1L);
-        medium.setWordCount("120万");
-        Novel raw = novel("3", "原始字数", 1L);
-        raw.setWordCount("1500000");
-        when(novelRepository.findByRankType("read")).thenReturn(List.of(small, medium, raw));
+    void statusFilterIsPassedThrough() {
+        when(novelRepository.pageAllBooksByCodes(eq(List.of("M_WESTERN_FANTASY")), eq("read"),
+                eq(false), eq(false), eq("已完结"), isNull(), isNull(), eq(""), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(novel("2", "已完结", 1L))));
 
-        assertEquals(List.of("2", "3"),
-                service.findAllBooksFiltered(null, "100w以上", null, false, "read")
-                        .stream().map(Novel::getBookId).toList());
-        assertEquals(List.of("1"),
-                service.findAllBooksFiltered(null, "100w以内", null, false, "read")
-                        .stream().map(Novel::getBookId).toList());
-    }
+        Page<Novel> result = service.findAllBooksFiltered(
+                List.of("M_WESTERN_FANTASY"), null, "已完结", false, false, "read", 1, 30, null);
 
-    @Test
-    void statusFilterUsesTheNormalizedLabel() {
-        Novel ongoing = novel("1", "连载中", 1L);
-        ongoing.setStatus("连载中");
-        Novel done = novel("2", "已完结", 1L);
-        done.setStatus("已完结");
-        when(novelRepository.findByCategoryCodeInAndRankType(List.of("M_WESTERN_FANTASY"), "read"))
-                .thenReturn(List.of(ongoing, done));
-
-        assertEquals(List.of("2"),
-                service.findAllBooksFiltered(List.of("M_WESTERN_FANTASY"), null, "已完结", false, "read")
-                        .stream().map(Novel::getBookId).toList());
-        verify(novelRepository).findByCategoryCodeInAndRankType(List.of("M_WESTERN_FANTASY"), "read");
+        assertEquals(List.of("2"), result.getContent().stream().map(Novel::getBookId).toList());
+        verify(novelRepository).pageAllBooksByCodes(eq(List.of("M_WESTERN_FANTASY")), eq("read"),
+                eq(false), eq(false), eq("已完结"), isNull(), isNull(), eq(""), any(Pageable.class));
     }
 
     @Test
     void databaseOutagesPropagateInsteadOfLookingLikeEmptyData() {
         DataAccessResourceFailureException down = new DataAccessResourceFailureException("数据库未启动");
         when(novelRepository.findAll()).thenThrow(down);
-        when(novelRepository.findByRankType(any())).thenThrow(down);
         when(novelRepository.findByCategoryCodeOrderByRankNumeric(any())).thenThrow(down);
+        when(novelRepository.pageAllBooks(any(), anyBoolean(), anyBoolean(), any(), any(), any(), any(), any()))
+                .thenThrow(down);
 
         assertThrows(DataAccessResourceFailureException.class, () -> service.findAllNovels());
         assertThrows(DataAccessResourceFailureException.class,
                 () -> service.findNovelsByCategoryCode("M_WESTERN_FANTASY"));
         assertThrows(DataAccessResourceFailureException.class,
-                () -> service.findAllBooksFiltered(null, null, null, false, "read"));
+                () -> service.findAllBooksFiltered(null, null, null, false, false, "read", 1, 30, null));
     }
 
     @Test
@@ -300,5 +316,73 @@ class NovelServiceImplTest {
         assertNull(maleRow.getBlockedTime(), "恢复后不该留下上一次的拉黑时刻");
         assertNull(femaleRow.getBlockedTime());
         verify(novelRepository, times(2)).saveAll(List.of(maleRow, femaleRow));
+    }
+
+    /** 关注不是排除标记：不勾「只看关注」时已关注的行照常出现；勾上后只留关注行且后关注的在前。 */
+    @Test
+    void watchedOnlyViewFiltersAndSortsWithoutHidingWatchedRowsByDefault() {
+        when(novelRepository.pageAllBooks(eq("read"), eq(false), eq(false), eq(""),
+                isNull(), isNull(), eq(""), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(novel("1", "没关注", 500L),
+                        novel("2", "先关注的", 100L), novel("3", "后关注的", 50L))));
+        when(novelRepository.pageAllBooks(eq("read"), eq(false), eq(true), eq(""),
+                isNull(), isNull(), eq(""), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(novel("3", "后关注的", 50L), novel("2", "先关注的", 100L))));
+
+        Page<Novel> all = service.findAllBooksFiltered(List.of(), null, null, false, false, "read", 1, 30, null);
+        assertEquals(3, all.getTotalElements(), "默认列表不隐藏关注行");
+
+        Page<Novel> watched = service.findAllBooksFiltered(List.of(), null, null, false, true, "read", 1, 30, null);
+        assertEquals(List.of("3", "2"), watched.getContent().stream().map(Novel::getBookId).toList());
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(novelRepository).pageAllBooks(eq("read"), eq(false), eq(true), eq(""),
+                isNull(), isNull(), eq(""), pageable.capture());
+        Sort.Order byWatched = pageable.getValue().getSort().getOrderFor("watchedTime");
+        assertEquals(Sort.Direction.DESC, byWatched.getDirection());
+        assertEquals(Sort.NullHandling.NULLS_LAST, byWatched.getNullHandling());
+    }
+
+    /** 两个筛选同时勾选是按交集：既关注又被拉黑才出现。 */
+    @Test
+    void watchedOnlyIntersectsWithBlockedOnly() {
+        when(novelRepository.pageAllBooks(eq("read"), eq(true), eq(true), eq(""),
+                isNull(), isNull(), eq(""), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(novel("3", "又关注又拉黑", 30L))));
+
+        Page<Novel> result = service.findAllBooksFiltered(List.of(), null, null, true, true, "read", 1, 30, null);
+
+        assertEquals(List.of("3"), result.getContent().stream().map(Novel::getBookId).toList());
+        verify(novelRepository).pageAllBooks(eq("read"), eq(true), eq(true), eq(""),
+                isNull(), isNull(), eq(""), any(Pageable.class));
+    }
+
+    /** 关注与拉黑同构：同一本书的全部行一起开关，取消时清空关注时刻。 */
+    @Test
+    void setWatchedTogglesEveryRowOfTheBook() {
+        Novel maleRow = novel("1", "科幻书", 1L);
+        maleRow.setCategoryCode("M_SCI_FI");
+        Novel femaleRow = novel("1", "科幻书", 8L);
+        femaleRow.setCategoryCode("F_SCI_FI");
+        when(novelRepository.findAllByBookId("1")).thenReturn(List.of(maleRow, femaleRow));
+
+        service.setWatched("1", true);
+        assertTrue(maleRow.getIsWatched());
+        assertTrue(femaleRow.getIsWatched());
+        assertNotNull(maleRow.getWatchedTime(), "关注时刻是「只看关注」的排序依据");
+        verify(novelRepository).saveAll(List.of(maleRow, femaleRow));
+
+        service.setWatched("1", false);
+        assertFalse(maleRow.getIsWatched());
+        assertFalse(femaleRow.getIsWatched());
+        assertNull(maleRow.getWatchedTime(), "取消关注后不该留下上一次的关注时刻");
+        verify(novelRepository, times(2)).saveAll(List.of(maleRow, femaleRow));
+    }
+
+    @Test
+    void setWatchedRejectsBlankAndUnknownIds() {
+        assertThrows(IllegalArgumentException.class, () -> service.setWatched("  ", true));
+        when(novelRepository.findAllByBookId("missing")).thenReturn(List.of());
+        assertThrows(IllegalArgumentException.class, () -> service.setWatched("missing", true));
     }
 }

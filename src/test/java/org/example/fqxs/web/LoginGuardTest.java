@@ -9,29 +9,29 @@ import static org.junit.jupiter.api.Assertions.*;
 class LoginGuardTest {
 
     private static LoginGuard guard() {
-        return new LoginGuard("123", "admin", false);
+        return new LoginGuard("admin", "admin", false);
     }
 
     @Test
     void acceptsConfiguredCredentials() {
         LoginGuard guard = guard();
-        assertEquals(LoginGuard.Result.OK, guard.authenticate("1.1.1.1", "123", "admin"));
+        assertEquals(LoginGuard.Result.OK, guard.authenticate("1.1.1.1", "admin", "admin"));
     }
 
     /** 账号两边带空格是复制粘贴的常见形态，账号 trim；口令不 trim（空格可能是口令的一部分）。 */
     @Test
     void trimsUsernameButNotPassword() {
         LoginGuard guard = guard();
-        assertEquals(LoginGuard.Result.OK, guard.authenticate("1.1.1.1", "  123 ", "admin"));
+        assertEquals(LoginGuard.Result.OK, guard.authenticate("1.1.1.1", "  admin ", "admin"));
         assertEquals(LoginGuard.Result.BAD_CREDENTIALS,
-                guard.authenticate("2.2.2.2", "123", " admin"));
+                guard.authenticate("2.2.2.2", "admin", " admin"));
     }
 
     @Test
     void rejectsWrongUsernameOrPassword() {
         LoginGuard guard = guard();
         assertEquals(LoginGuard.Result.BAD_CREDENTIALS, guard.authenticate("1.1.1.1", "124", "admin"));
-        assertEquals(LoginGuard.Result.BAD_CREDENTIALS, guard.authenticate("1.1.1.1", "123", "admin2"));
+        assertEquals(LoginGuard.Result.BAD_CREDENTIALS, guard.authenticate("1.1.1.1", "admin", "admin2"));
         assertEquals(LoginGuard.Result.BAD_CREDENTIALS, guard.authenticate("1.1.1.1", null, null));
         assertEquals(LoginGuard.Result.BAD_CREDENTIALS, guard.authenticate("1.1.1.1", "", ""));
     }
@@ -42,7 +42,7 @@ class LoginGuardTest {
         LoginGuard guard = new LoginGuard("", "", false);
         assertFalse(guard.enabled());
         assertEquals(LoginGuard.Result.DISABLED, guard.authenticate("1.1.1.1", "", ""));
-        assertEquals(LoginGuard.Result.DISABLED, guard.authenticate("1.1.1.1", "123", "admin"));
+        assertEquals(LoginGuard.Result.DISABLED, guard.authenticate("1.1.1.1", "admin", "admin"));
     }
 
     /** 同一来源连续失败到上限就锁定；锁定期内连正确口令也拒（不透露「这次对了」）。 */
@@ -50,10 +50,10 @@ class LoginGuardTest {
     void locksSourceAfterRepeatedFailures() {
         LoginGuard guard = guard();
         for (int i = 0; i < LoginGuard.MAX_FAILURES - 1; i++) {
-            assertEquals(LoginGuard.Result.BAD_CREDENTIALS, guard.authenticate("9.9.9.9", "123", "bad"));
+            assertEquals(LoginGuard.Result.BAD_CREDENTIALS, guard.authenticate("9.9.9.9", "admin", "bad"));
         }
-        assertEquals(LoginGuard.Result.LOCKED, guard.authenticate("9.9.9.9", "123", "bad"));
-        assertEquals(LoginGuard.Result.LOCKED, guard.authenticate("9.9.9.9", "123", "admin"));
+        assertEquals(LoginGuard.Result.LOCKED, guard.authenticate("9.9.9.9", "admin", "bad"));
+        assertEquals(LoginGuard.Result.LOCKED, guard.authenticate("9.9.9.9", "admin", "admin"));
         assertTrue(guard.lockRemainingSeconds("9.9.9.9") > 0);
     }
 
@@ -62,9 +62,9 @@ class LoginGuardTest {
     void lockIsPerSource() {
         LoginGuard guard = guard();
         for (int i = 0; i < LoginGuard.MAX_FAILURES; i++) {
-            guard.authenticate("9.9.9.9", "123", "bad");
+            guard.authenticate("9.9.9.9", "admin", "bad");
         }
-        assertEquals(LoginGuard.Result.OK, guard.authenticate("8.8.8.8", "123", "admin"));
+        assertEquals(LoginGuard.Result.OK, guard.authenticate("8.8.8.8", "admin", "admin"));
     }
 
     /** 登录成功要把失败计数清零，否则「偶尔输错几次」会累积到锁定。 */
@@ -72,11 +72,11 @@ class LoginGuardTest {
     void successResetsFailureCounter() {
         LoginGuard guard = guard();
         for (int i = 0; i < LoginGuard.MAX_FAILURES - 1; i++) {
-            guard.authenticate("7.7.7.7", "123", "bad");
+            guard.authenticate("7.7.7.7", "admin", "bad");
         }
-        assertEquals(LoginGuard.Result.OK, guard.authenticate("7.7.7.7", "123", "admin"));
+        assertEquals(LoginGuard.Result.OK, guard.authenticate("7.7.7.7", "admin", "admin"));
         for (int i = 0; i < LoginGuard.MAX_FAILURES - 1; i++) {
-            assertEquals(LoginGuard.Result.BAD_CREDENTIALS, guard.authenticate("7.7.7.7", "123", "bad"));
+            assertEquals(LoginGuard.Result.BAD_CREDENTIALS, guard.authenticate("7.7.7.7", "admin", "bad"));
         }
     }
 
@@ -93,7 +93,7 @@ class LoginGuardTest {
     /** 反代后面所有人的 remoteAddr 都是 127.0.0.1，只能靠反代覆盖的头区分来源。 */
     @Test
     void usesFirstForwardedHopWhenTrusted() {
-        LoginGuard guard = new LoginGuard("123", "admin", true);
+        LoginGuard guard = new LoginGuard("admin", "admin", true);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setRemoteAddr("127.0.0.1");
         request.addHeader("X-Forwarded-For", "203.0.113.9, 10.0.0.1");

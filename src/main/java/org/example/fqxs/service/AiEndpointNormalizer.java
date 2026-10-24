@@ -14,19 +14,18 @@ import java.util.regex.Pattern;
  * 补 {@code /chat/completions}；仅规范写法的 localhost/127.0.0.1/::1 允许明文 http；
  * 数字与十六进制 IP 写法一律拒绝。</p>
  *
- * <p><b>这里只判字面量，不做 DNS 解析</b>（2026-10-22 修正）。两个理由：</p>
+ * <p><b>这里只判字面量，不做 DNS 解析</b>。两个理由：</p>
  * <ul>
- *   <li>保存配置不该依赖网络：域名一时解析不出来就把用户挡在门外，属于自伤；</li>
+ *   <li>保存配置不应依赖网络：域名一时解析失败就会阻断保存；</li>
  *   <li>域名能解析到哪，只有真正连接时才知道——DNS rebinding 的原理正是"保存时是公网 IP、
  *       请求时变成内网 IP"。真正的拦截点在连接层：{@link org.example.fqxs.client.GuardedDns}
  *       在 OkHttp 每次解析后按 {@link HostAddressPolicy} 判一遍真实地址。</li>
  * </ul>
  *
- * <p>历史实现（2026-10-22 之前）是纯文本前缀黑名单，只认 {@code 10.} / {@code 192.168.} /
- * {@code 127.} / {@code 169.254.} 这些开头，于是 {@code https://2852039166/v1}（十进制整数编码的
- * 169.254.169.254）、{@code https://0xa9fea9fe/v1}（十六进制）、{@code https://localtest.me/v1}
- * （解析到回环的公共域名）全部放行——线上实测报告 §7.1 已实测证实。现在字面量写法直接拒绝，
- * 域名交给连接层判，两条路都不留缝。</p>
+ * <p>纯文本前缀黑名单（只认 {@code 10.} / {@code 192.168.} / {@code 127.} / {@code 169.254.}
+ * 开头）会放行 {@code https://2852039166/v1}（十进制整数编码的 169.254.169.254）、
+ * {@code https://0xa9fea9fe/v1}（十六进制）与 {@code https://localtest.me/v1}（解析到回环的
+ * 公共域名）。因此字面量写法直接拒绝，域名交给连接层判定。</p>
  */
 public final class AiEndpointNormalizer {
 

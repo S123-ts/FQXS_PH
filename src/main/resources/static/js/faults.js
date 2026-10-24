@@ -61,7 +61,7 @@ function renderRows(faults) {
     }
     faults.forEach(fault => {
         const tr = document.createElement('tr');
-        cell(tr, fmtTime(fault.occurredTime));
+        cell(tr, fmtTime(fault.occurredTime), 'fault-time');
         cell(tr, fault.engine);
         cell(tr, fault.model);
         cell(tr, KIND_LABEL[fault.kind] || fault.kind);

@@ -100,7 +100,7 @@ public class ChapterContentService {
         }
     }
 
-    /** 某本书已落库的章数：诊断与验收用。 */
+    /** 某本书已落库的章数：用于诊断与核对。 */
     public long countByBook(String bookId) {
         return chapterRepository.countByBookId(bookId);
     }

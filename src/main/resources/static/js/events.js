@@ -13,8 +13,8 @@ import {
 } from './render.js';
 import {
     loadData, fetchAllData, goToPage, jumpToPageFromInput, onFilterChange,
-    onPageSizeChange, setBlocked, switchCategory, saveRankType, saveDisplayCategories,
-    runBatchBlock
+    onPageSizeChange, setBlocked, setWatched, switchCategory, saveRankType, saveDisplayCategories,
+    runBatchBlock, enrichBookMeta
 } from './data.js';
 import { runAiSweep, runSelectionVerdict, runBadgeRerun, runVerifyBatch } from './ai_actions.js';
 import {
@@ -69,6 +69,11 @@ export function bindEvents() {
         // 点到别处就放弃这次拉黑确认（避免“确认态”一直亮着，下一次误点直接生效）
         if (blockConfirmBtn && !blockConfirmBtn.contains(e.target)) {
             resetBlockConfirm();
+        }
+
+        // 行内「更多」菜单是临时的：点菜单外面任意位置都收起
+        if (!e.target.closest('.row-more')) {
+            closeRowMenus();
         }
 
         // 手机摘要条：只切换控制区展开/收起，不触碰筛选本身
@@ -138,6 +143,13 @@ export function bindEvents() {
                 case 'fetch-all':
                     fetchAllData();
                     break;
+                // 关注：与拉黑同构的写操作，但不设二段确认——误点再点一下即取消
+                case 'watch':
+                    setWatched(actionBtn.dataset.bookId, true, actionBtn);
+                    break;
+                case 'unwatch':
+                    setWatched(actionBtn.dataset.bookId, false, actionBtn);
+                    break;
                 // 批量拉黑/恢复：对当前页已勾选的书串行调用单本接口
                 case 'batch-block':
                     runBatchBlock(true);
@@ -177,6 +189,10 @@ export function bindEvents() {
                 case 'ai-detail':
                     openAiDetail(actionBtn.dataset.bookId, actionBtn);
                     break;
+                // 行内「更多」：展开详情与逐章校验，同一时刻只开一个
+                case 'row-more':
+                    toggleRowMenu(actionBtn);
+                    break;
                 case 'ai-detail-close':
                     closeAiDetail();
                     break;
@@ -204,7 +220,7 @@ export function bindEvents() {
                     expandModelList(actionBtn);
                     break;
                 case 'ai-engine-delete':
-                    removeEngine(actionBtn.dataset.engine);
+                    removeEngine(actionBtn.dataset.engine, actionBtn);
                     break;
                 case 'ai-engine-add':
                     addEngine();
@@ -227,6 +243,10 @@ export function bindEvents() {
                     logout();
                     break;
             }
+            // 菜单项点完就收起：详情已弹窗、校验已开始，菜单留着只会挡住下一行
+            if (actionBtn.closest('.more-menu')) {
+                closeRowMenus();
+            }
         }
 
         // 任何一次点击都可能改了「看什么」（导航/榜单），摘要统一在委托末尾对齐
@@ -244,7 +264,11 @@ export function bindEvents() {
     /* ---------- 键盘：Esc 关设置面板/下拉，面板打开期间 Tab 圈定焦点 ---------- */
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-            if (isAiDetailOpen()) {
+            if (document.querySelector('.row-more.menu-open')) {
+                // 菜单不是模态，Esc 优先收菜单，第二次才关弹窗
+                e.preventDefault();
+                closeRowMenus();
+            } else if (isAiDetailOpen()) {
                 e.preventDefault();
                 closeAiDetail();
             } else if (isAiKeyPanelOpen()) {
@@ -268,6 +292,8 @@ export function bindEvents() {
             // 跳页输入框里回车等同点「跳转」；分页条是动态节点，Enter 也走委托
             e.preventDefault();
             jumpToPageFromInput();
+        } else {
+            handleListShortcut(e);
         }
     });
 
@@ -307,8 +333,13 @@ export function bindEvents() {
 
     document.getElementById('filterWord').addEventListener('change', onFilterChange);
     document.getElementById('filterStatus').addEventListener('change', onFilterChange);
+    document.getElementById('filterAuthor').addEventListener('change', onFilterChange);
     document.getElementById('filterBlocked').addEventListener('change', onFilterChange);
+    document.getElementById('filterWatched').addEventListener('change', onFilterChange);
     document.getElementById('pageSizeSelect').addEventListener('change', onPageSizeChange);
+    document.getElementById('enrichMetaBtn').addEventListener('click', () => {
+        enrichBookMeta();
+    });
 
     // 筛选/榜单控件的值变化后，折叠摘要上的文案跟着走（change 会冒泡到 document）
     document.addEventListener('change', updateChromeSummary);
@@ -347,18 +378,6 @@ export function bindEvents() {
         });
     }
 
-    // 取样策略：选「默认」不需要章数，选显式策略才露出数字框
-    // （与「每页显示-自定义」同一套显隐；值本身由 getSampleSpec() 从控件现读）
-    const sampleSelect = /** @type {HTMLSelectElement} */ (document.getElementById('sampleSelect'));
-    const sampleCount = /** @type {HTMLInputElement} */ (document.getElementById('sampleCount'));
-    if (sampleSelect && sampleCount) {
-        const syncSampleCount = () => {
-            sampleCount.hidden = !sampleSelect.value;
-        };
-        syncSampleCount();
-        sampleSelect.addEventListener('change', syncSampleCount);
-    }
-
     const customPageSize = /** @type {HTMLInputElement} */ (document.getElementById('customPageSize'));
     if (customPageSize) {
         // 兜底摆一次显隐：不管 HTML 初始有没有带 hidden，都按 select 当前值对齐
@@ -379,6 +398,114 @@ export function bindEvents() {
 
     // 手机折叠摘要条：按会话恢复展开态、量导航高度供吸顶使用
     initChromeUi();
+}
+
+/* ---------- 行内「更多」菜单 ----------
+   同一时刻只开一个；打开时给所在卡片抬 z-index，否则菜单会被下一张卡片盖住
+   （.book-item 是 position:relative，但没有自己的层叠上下文）。 */
+function closeRowMenus(except) {
+    document.querySelectorAll('.row-more.menu-open').forEach(el => {
+        if (el === except) return;
+        el.classList.remove('menu-open');
+        const menu = /** @type {HTMLElement|null} */ (el.querySelector('.more-menu'));
+        if (menu) menu.hidden = true;
+        const btn = el.querySelector('.more-btn');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+        const row = el.closest('.book-item');
+        if (row) row.classList.remove('menu-open');
+    });
+}
+
+function toggleRowMenu(btn) {
+    const holder = btn.closest('.row-more');
+    if (!holder) return;
+    const menu = /** @type {HTMLElement|null} */ (holder.querySelector('.more-menu'));
+    if (!menu) return;
+    const willOpen = menu.hidden;
+    closeRowMenus(holder);
+    menu.hidden = !willOpen;
+    holder.classList.toggle('menu-open', willOpen);
+    btn.setAttribute('aria-expanded', String(willOpen));
+    const row = holder.closest('.book-item');
+    if (row) row.classList.toggle('menu-open', willOpen);
+}
+
+/* ---------- 列表键盘导航（j/k 翻行、Enter 开详情、x 勾选） ----------
+   高亮落点直接存在 DOM（.kb-active）而不是模块变量：整页重绘会重建所有行，
+   DOM 上的标记连同旧节点一起消失，天然“翻页即复位”，不需要在每个渲染入口手动清。 */
+function listRows() {
+    return Array.from(document.querySelectorAll('#bookList .book-item'));
+}
+
+/* 当前高亮行下标；DOM 重建后（翻页/筛选）返回 -1，下一次 j/k 重新从行首/行尾开始 */
+function kbIndex() {
+    return listRows().findIndex(row => row.classList.contains('kb-active'));
+}
+
+function setKbCursor(index) {
+    const rows = listRows();
+    if (rows.length === 0) return;
+    const target = Math.max(0, Math.min(rows.length - 1, index));
+    rows.forEach((row, i) => row.classList.toggle('kb-active', i === target));
+    rows[target].scrollIntoView({ block: 'nearest' });
+}
+
+/* 输入框、下拉、按钮上的按键属于控件本身：只认打字区域和弹窗，
+   按钮/链接上的 j/k 没有原生行为，仍交给列表导航 */
+function isTypingTarget(target) {
+    return target instanceof HTMLInputElement
+        || target instanceof HTMLTextAreaElement
+        || target instanceof HTMLSelectElement
+        || (target instanceof HTMLElement && target.isContentEditable);
+}
+
+function handleListShortcut(e) {
+    // 组合键留给浏览器（Ctrl+F 查找、Cmd+R 刷新等），不做拦截
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isTypingTarget(e.target)) return;
+    // 面板打开时只认 Esc/Tab，避免在弹窗里按 j 把背景列表滚走
+    if (isConfigPanelOpen() || isAiKeyPanelOpen() || isAiDetailOpen() || isDropdownOpen) return;
+    // 「更多」菜单打开时只允许 Esc 关闭；继续 j/k/x 会让菜单和高亮行错位
+    if (document.querySelector('.row-more.menu-open')) return;
+    if (listRows().length === 0) return;
+
+    const key = e.key.toLowerCase();
+    if (key === 'j') {
+        e.preventDefault();
+        const current = kbIndex();
+        setKbCursor(current < 0 ? 0 : current + 1);
+        return;
+    }
+    if (key === 'k') {
+        e.preventDefault();
+        const current = kbIndex();
+        setKbCursor(current < 0 ? listRows().length - 1 : current - 1);
+        return;
+    }
+    if (key === 'x') {
+        const current = kbIndex();
+        if (current < 0) return;
+        e.preventDefault();
+        const box = /** @type {HTMLInputElement|null} */ (
+            listRows()[current].querySelector('.row-check'));
+        if (box) {
+            box.checked = !box.checked;
+            // 勾选状态归 state.selection 管：派发 change 让已有的委托去同步，不在这里抄一份逻辑
+            box.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return;
+    }
+    if (e.key === 'Enter') {
+        // 焦点在按钮/链接上时回车是它自己的激活键，不该再触发列表动作
+        if (e.target instanceof Element && e.target.closest('button, a')) return;
+        const current = kbIndex();
+        if (current < 0) return;
+        const detail = listRows()[current].querySelector('[data-action="ai-detail"]');
+        if (detail instanceof HTMLElement) {
+            e.preventDefault();
+            detail.click();
+        }
+    }
 }
 
 /* ---------- 登录态 ---------- */

@@ -88,6 +88,26 @@ public class Novel {
     @Column(length = 20)
     private String wordCount;
 
+    /** 字数折成“万”的数值列：字符串无法在 SQL 里比较大小，筛选与排序靠它下推。 */
+    @Column(name = "word_count_wan")
+    private Double wordCountWan;
+
+    /** 作者性别：0=女 / 1=男 / null=未取或第三方未知（2）。 */
+    @Column(name = "author_gender")
+    private Integer authorGender;
+
+    /** 第三方评分（0–10），null=未取或该平台无评分。 */
+    @Column
+    private Double rating;
+
+    /** 性别只取一次：有值即不再请求。 */
+    @Column(name = "author_gender_checked_time")
+    private LocalDateTime authorGenderCheckedTime;
+
+    /** 评分刷新时间：超过 10 天才重新请求。 */
+    @Column(name = "rating_checked_time")
+    private LocalDateTime ratingCheckedTime;
+
     @Column(updatable = false)
     @JsonFormat(pattern = JSON_DATETIME)
     private LocalDateTime createTime;
@@ -104,6 +124,18 @@ public class Novel {
     @Column(name = "blocked_time")
     @JsonFormat(pattern = JSON_DATETIME)
     private LocalDateTime blockedTime;
+
+    /**
+     * 关注标记：与拉黑并列的第二种行内标记，按 bookId 全行联动。
+     * 与 is_blocked 相互独立——关注是“留着看”，不影响正常列表的可见性。
+     */
+    @Column(name = "is_watched", nullable = false)
+    private Boolean isWatched = false;
+
+    /** 关注动作发生的时刻，取消关注时清空；“只看关注”列表按它倒序。 */
+    @Column(name = "watched_time")
+    @JsonFormat(pattern = JSON_DATETIME)
+    private LocalDateTime watchedTime;
 
     /**
      * 免费引擎（GLM）的判定结论：0=未判 1=非 AI 2=AI 3=疑似 AI。
@@ -147,6 +179,9 @@ public class Novel {
         updateTimeDb = DateUtil.now();
         if (isBlocked == null) {
             isBlocked = false;
+        }
+        if (isWatched == null) {
+            isWatched = false;
         }
     }
 

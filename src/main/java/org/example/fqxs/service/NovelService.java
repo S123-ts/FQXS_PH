@@ -3,6 +3,7 @@ package org.example.fqxs.service;
 import org.example.fqxs.constant.CategoryCatalog;
 import org.example.fqxs.entity.Novel;
 import org.example.fqxs.model.NovelInfo;
+import org.springframework.data.domain.Page;
 
 import java.util.List;
 
@@ -23,17 +24,30 @@ public interface NovelService {
     List<Novel> findAllNovels();
 
     /**
-     * “全部”视图读库：只取 rankType 指定榜单的分区；blockedOnly 为 true 时
-     * 反过来只返回已拉黑的书，给“恢复”留出口。
+     * “全部”视图读库（服务端分页）：只取 rankType 指定榜单的分区；blockedOnly 为 true 时
+     * 反过来只返回已拉黑的书，给“恢复”留出口。watchedOnly 与它是交集：
+     * 只返回已关注的书，不改变“未勾选时正常列表仍包含已关注行”的语义。
+     *
+     * @param page         页码，从 1 开始
+     * @param size         每页条数（服务层会钳到上限）
+     * @param authorGender 作者性别筛选：male / female / unknown / 空=全部
+     * @return 当前页数据与命中总数
      */
-    List<Novel> findAllBooksFiltered(List<String> categoryCodes, String wordRange, String status,
-                                     boolean blockedOnly, String rankType);
+    Page<Novel> findAllBooksFiltered(List<String> categoryCodes, String wordRange, String status,
+                                     boolean blockedOnly, boolean watchedOnly, String rankType,
+                                     int page, int size, String authorGender);
 
     /** 库里是否一行都没有（跨全部榜单分区），给前端区分“空库”与“空分区”。 */
     long countAllNovels();
 
     /** 同一本书可能挂多个分类榜，拉黑/恢复作用于它的全部行（跨榜单类型）。 */
     void setBlocked(String bookId, boolean blocked);
+
+    /**
+     * 关注/取消关注，按 bookId 作用于全部行。关注不影响列表可见性，
+     * 只是“只看关注”筛选与行内按钮状态的依据。
+     */
+    void setWatched(String bookId, boolean watched);
 
     /**
      * 写入免费引擎（GLM）的判定结论，按 bookId 作用于全部行。

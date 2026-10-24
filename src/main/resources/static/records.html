@@ -97,10 +97,14 @@
 
     <!-- 3) 判定结果：append-only 流水，每次判定一行 -->
     <section class="rec-block" aria-labelledby="recResultTitle">
-        <h2 class="rec-block-title" id="recResultTitle">
-            判定结果
-            <span class="rec-count" id="recResultCount">0</span>
-        </h2>
+        <div class="rec-block-head">
+            <h2 class="rec-block-title" id="recResultTitle">
+                判定结果
+                <span class="rec-count" id="recResultCount">0</span>
+            </h2>
+            <input class="input rec-search" id="resultSearch" type="search" placeholder="按书名检索"
+                   aria-label="按书名检索判定结果" autocomplete="off">
+        </div>
         <p class="rec-hint">每轮判定一行（初筛 / 逐章 / 手点重跑分开记），同一本书换引擎重判不会覆盖这里的旧记录。</p>
         <table class="rec-table rec-table-result">
             <thead>

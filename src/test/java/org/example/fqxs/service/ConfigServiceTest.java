@@ -93,12 +93,11 @@ class ConfigServiceTest {
     }
 
     @Test
-    void invalidRankTypeIsRejected() {
+    void invalidRankTypeFallsBackToDefault() {
         configService.seedDefaults();
 
-        assertThatThrownBy(() -> configService.updateConfig("hot", null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("rankType");
+        // API 入口由 @Pattern 拦成 400；service 被直接调用时兜脏值，不再重复抛
+        configService.updateConfig("hot", null);
         assertThat(configService.getActiveRankType()).isEqualTo("read");
     }
 

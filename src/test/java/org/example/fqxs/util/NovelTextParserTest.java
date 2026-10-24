@@ -56,6 +56,9 @@ class NovelTextParserTest {
     void parseWordCountToWanHandlesBothNotations() {
         assertEquals(120.0, NovelTextParser.parseWordCountToWan("120万"), 0.001);
         assertEquals(120.0, NovelTextParser.parseWordCountToWan("1200000"), 0.001);
+        // 真实上游格式是「44.6万字」：旧解析器只认「万」结尾，会把整列解析成 0
+        assertEquals(44.6, NovelTextParser.parseWordCountToWan("44.6万字"), 0.001);
+        assertEquals(305.3, NovelTextParser.parseWordCountToWan("305.3万\uDC87"), 0.001);
         assertEquals(0.0, NovelTextParser.parseWordCountToWan("断更"), 0.001);
         assertEquals(0.0, NovelTextParser.parseWordCountToWan(null), 0.001);
     }

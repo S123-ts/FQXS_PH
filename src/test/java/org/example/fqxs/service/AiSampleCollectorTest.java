@@ -1,6 +1,5 @@
 package org.example.fqxs.service;
 
-import org.example.fqxs.client.ChapterClient;
 import org.example.fqxs.client.ThirdPartyChapterClient;
 import org.example.fqxs.config.AiDetectConfig;
 import org.example.fqxs.exception.CrawlException;
@@ -20,7 +19,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -29,7 +30,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * 三档取样规则契约（2026-10-22 重构后）：
+ * 三档取样规则契约：
  *
  * <ul>
  *   <li>默认档：全书前 10 章，走官方（{@link ChapterContentService}，库优先）；</li>
@@ -42,7 +43,7 @@ import static org.mockito.Mockito.when;
 class AiSampleCollectorTest {
 
     @Mock
-    private ChapterClient chapterClient;
+    private ChapterDirectoryService directoryService;
 
     /** 默认 mock 的 isUsable() 返回 false，需要第三方档的用例要显式打开。 */
     @Mock
@@ -64,13 +65,13 @@ class AiSampleCollectorTest {
         config.setMaxCharsPerBook(8000);
         config.setSampleRequestLimit(15);
         config.setFreeHeadChapters(10);
-        collector = new AiSampleCollector(chapterClient, thirdPartyChapterClient,
-                chapterContentService, config);
+        collector = new AiSampleCollector(directoryService, thirdPartyChapterClient,
+                chapterContentService, config, new UpstreamThrottle());
     }
 
     @Test
     void defaultRuleTakesFirstTenChaptersThroughChapterStore() {
-        when(chapterClient.listChapterIds("b1")).thenReturn(ids(200));
+        when(directoryService.listChapterIds(eq("b1"), anyLong())).thenReturn(ids(200));
         lenient().when(chapterContentService.getOrFetch(anyString(), anyString(), anyInt(), any()))
                 .thenAnswer(invocation -> full(invocation.getArgument(1), 600, 600));
 
@@ -79,14 +80,14 @@ class AiSampleCollectorTest {
         assertThat(collected.mode()).isEqualTo("official:head");
         assertThat(collected.span()).isEqualTo("1-10");
         assertThat(collected.text()).contains("第1章").contains("第10章");
-        // 官方回源由 ChapterContentService 负责（库优先），取样器不再直接打 ChapterClient
-        verify(chapterClient, never()).fetchChapter(anyString());
+        // 官方档的回源由 ChapterContentService 负责（库优先），目录走 ChapterDirectoryService，不碰第三方
+        verifyNoInteractions(thirdPartyChapterClient);
         verify(chapterContentService, times(10)).getOrFetch(anyString(), anyString(), anyInt(), any());
     }
 
     @Test
     void defaultRuleIsUsedWhenStrategyIsBlank() {
-        when(chapterClient.listChapterIds("b1")).thenReturn(ids(30));
+        when(directoryService.listChapterIds(eq("b1"), anyLong())).thenReturn(ids(30));
         lenient().when(chapterContentService.getOrFetch(anyString(), anyString(), anyInt(), any()))
                 .thenAnswer(invocation -> full(invocation.getArgument(1), 600, 600));
 
@@ -98,7 +99,7 @@ class AiSampleCollectorTest {
 
     @Test
     void recentRuleTakesLastTenChaptersFromThirdParty() {
-        when(chapterClient.listChapterIds("b1")).thenReturn(ids(200));
+        when(directoryService.listChapterIds(eq("b1"), anyLong())).thenReturn(ids(200));
         when(thirdPartyChapterClient.isUsable()).thenReturn(true);
         lenient().when(thirdPartyChapterClient.fetchChapter(anyString()))
                 .thenAnswer(invocation -> full(invocation.getArgument(0), 600, 600));
@@ -114,7 +115,7 @@ class AiSampleCollectorTest {
 
     @Test
     void randomRulePicksTwoNonOverlappingSegmentsAfterTheTenthChapter() {
-        when(chapterClient.listChapterIds("b1")).thenReturn(ids(200));
+        when(directoryService.listChapterIds(eq("b1"), anyLong())).thenReturn(ids(200));
         when(thirdPartyChapterClient.isUsable()).thenReturn(true);
         lenient().when(thirdPartyChapterClient.fetchChapter(anyString()))
                 .thenAnswer(invocation -> full(invocation.getArgument(0), 600, 600));
@@ -135,7 +136,7 @@ class AiSampleCollectorTest {
 
     @Test
     void randomRuleRejectsBookTooShortForTwoSegments() {
-        when(chapterClient.listChapterIds("b1")).thenReturn(ids(19));
+        when(directoryService.listChapterIds(eq("b1"), anyLong())).thenReturn(ids(19));
         when(thirdPartyChapterClient.isUsable()).thenReturn(true);
 
         assertThatThrownBy(() -> collector.collect("b1", SampleSpec.of("random", 0)))
@@ -152,12 +153,12 @@ class AiSampleCollectorTest {
                 .hasMessageContaining("会员正文通道暂不可用");
         // 关键：不许偷偷改走官方前 10 章，否则 sample_mode 与实际取样不符
         verifyNoInteractions(chapterContentService);
-        verify(chapterClient, never()).fetchChapter(anyString());
+        verify(thirdPartyChapterClient, never()).fetchChapter(anyString());
     }
 
     @Test
     void thirdPartyFailureOnOneChapterIsSkipped() {
-        when(chapterClient.listChapterIds("b1")).thenReturn(ids(200));
+        when(directoryService.listChapterIds(eq("b1"), anyLong())).thenReturn(ids(200));
         when(thirdPartyChapterClient.isUsable()).thenReturn(true);
         lenient().when(thirdPartyChapterClient.fetchChapter(anyString()))
                 .thenAnswer(invocation -> full(invocation.getArgument(0), 600, 600));
@@ -174,7 +175,7 @@ class AiSampleCollectorTest {
 
     @Test
     void requestBudgetCapsChapterFetches() {
-        when(chapterClient.listChapterIds("b1")).thenReturn(ids(200));
+        when(directoryService.listChapterIds(eq("b1"), anyLong())).thenReturn(ids(200));
         when(thirdPartyChapterClient.isUsable()).thenReturn(true);
         lenient().when(thirdPartyChapterClient.fetchChapter(anyString()))
                 .thenAnswer(invocation -> new ChapterSample(invocation.getArgument(0), "", "试".repeat(150), 150));
@@ -189,7 +190,7 @@ class AiSampleCollectorTest {
 
     @Test
     void failsWhenAllOfficialChaptersArePreviewOnly() {
-        when(chapterClient.listChapterIds("b1")).thenReturn(ids(20));
+        when(directoryService.listChapterIds(eq("b1"), anyLong())).thenReturn(ids(20));
         lenient().when(chapterContentService.getOrFetch(anyString(), anyString(), anyInt(), any()))
                 .thenAnswer(invocation -> new ChapterSample(invocation.getArgument(1), "", "试".repeat(150), 150));
 
@@ -200,7 +201,7 @@ class AiSampleCollectorTest {
 
     @Test
     void planMarksThirdPartyForRecentAndOfficialForHead() {
-        when(chapterClient.listChapterIds("b1")).thenReturn(ids(200));
+        when(directoryService.listChapterIds(eq("b1"), anyLong())).thenReturn(ids(200));
         lenient().when(thirdPartyChapterClient.isUsable()).thenReturn(true);
 
         AiSampleCollector.ChapterPlan head = collector.plan("b1", SampleSpec.of("head", 0));

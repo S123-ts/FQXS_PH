@@ -7,7 +7,7 @@
 import { API_BASE, WHOLE_LIST_SIZE } from './config.js';
 import {
     fetchRankList, postJson, setBlockedApi, setWatchedApi, fetchAllDataApi,
-    fetchMetaApi, saveConfigApi, fetchVerdictsApi
+    fetchMetaApi, saveConfigApi, fetchVerdictsApi, enrichBookMetaApi
 } from './api.js';
 import { state, getEffectivePageSize, loadShownPreference, saveShownPreference } from './state.js';
 import {
@@ -40,7 +40,7 @@ export function bootstrap() {
         .then(body => {
             const data = (body && body.data) || {};
             // 后端契约保证形状；万一拿到 200 但目录为空的坏数据，按失败处理，
-            // 别让页面渲染成“未选择分类”——那会被读成“没有书”
+            // 避免渲染为“未选择分类”——会被理解为“没有书”
             if (!Array.isArray(data.categories) || data.categories.length === 0
                 || !Array.isArray(data.rankTypes) || data.rankTypes.length === 0) {
                 throw new Error('榜单元信息不完整（分类目录或榜单类型为空）');
@@ -115,16 +115,21 @@ export function loadData(keepPage) {
         }
         const wordRange = /** @type {HTMLSelectElement} */ (document.getElementById('filterWord')).value || '';
         const status = /** @type {HTMLSelectElement} */ (document.getElementById('filterStatus')).value || '';
+        const authorGender = /** @type {HTMLSelectElement} */ (document.getElementById('filterAuthor')).value || '';
         state.blockedView = /** @type {HTMLInputElement} */ (document.getElementById('filterBlocked')).checked;
         state.watchedView = /** @type {HTMLInputElement} */ (document.getElementById('filterWatched')).checked;
-        state.filtersActive = !!(wordRange || status || state.blockedView || state.watchedView)
+        state.filtersActive = !!(wordRange || status || authorGender || state.blockedView || state.watchedView)
             || selected.length < getDisplayedCategories().length;
+        // 服务端分页：页码与条数随筛选一起下发，字段齐全才能把 total 算对
         const url = `${API_BASE}/allBooks`
             + `?category=${encodeURIComponent(selected.join(','))}`
             + `&wordRange=${encodeURIComponent(wordRange)}`
             + `&status=${encodeURIComponent(status)}`
             + `&blockedOnly=${state.blockedView}`
-            + `&watchedOnly=${state.watchedView}`;
+            + `&watchedOnly=${state.watchedView}`
+            + `&authorGender=${encodeURIComponent(authorGender)}`
+            + `&page=${state.currentPage}`
+            + `&size=${getEffectivePageSize()}`;
 
         fetchRankList(url, signal)
             .then(data => {
@@ -293,11 +298,20 @@ export function saveDisplayCategories(codes) {
 
 /* ---------- 分页 / 筛选（本地派生为主） ---------- */
 
-/* 只有本地已有整榜数据时翻页才有意义 */
+/* 服务端分页的响应带 total；分类视图仍是一次抓满后的本地切片 */
+function isServerPaged() {
+    return state.currentCategory === 'ALL' && !!state.lastData
+        && typeof state.lastData.total === 'number';
+}
+
 export function goToPage(page) {
     if (!state.lastData) return;
     state.currentPage = page;
-    renderWithVerdicts();
+    if (isServerPaged()) {
+        loadData(true); // 保留目标页，由后端取这一页
+    } else {
+        renderWithVerdicts();
+    }
     window.scrollTo({ top: 0 });
 }
 
@@ -308,20 +322,26 @@ export function onPageSizeChange() {
         custom.hidden = select.value !== 'custom';
     }
     state.currentPage = 1;
-    /* 每页条数只是本地切片，不值得再打一次上游 */
-    if (state.lastData) {
+    if (state.currentCategory === 'ALL') {
+        // 服务端分页：条数变了必须重新请求，否则只有当前这一页
+        loadData();
+    } else if (state.lastData) {
+        /* 分类视图仍是一次抓满，本地切片即可 */
         renderWithVerdicts();
     } else {
         loadData();
     }
 }
 
-/* 跳页：读 #pageJumpInput 的值。页数以本地 lastData 现算而不是信输入框的 max——
-   数据可能在输入后变过；空/非法输入直接忽略，越界钳到 [1, pages] */
+/* 跳页：页数按 total（服务端）或本地数组长度现算，不信输入框的 max；
+   空/非法输入直接忽略，越界钳到 [1, pages] */
 export function jumpToPageFromInput() {
     const input = /** @type {HTMLInputElement} */ (document.getElementById('pageJumpInput'));
     if (!input || !state.lastData || !Array.isArray(state.lastData.data)) return;
-    const pages = Math.max(1, Math.ceil(state.lastData.data.length / getEffectivePageSize()));
+    const total = typeof state.lastData.total === 'number'
+        ? state.lastData.total
+        : state.lastData.data.length;
+    const pages = Math.max(1, Math.ceil(total / getEffectivePageSize()));
     const target = parseInt(input.value, 10);
     if (isNaN(target)) return;
     goToPage(Math.min(pages, Math.max(1, target)));
@@ -330,6 +350,30 @@ export function jumpToPageFromInput() {
 export function onFilterChange() {
     if (state.currentCategory === 'ALL') {
         loadData();
+    }
+}
+
+/* 补作者性别/评分：每次只触发 5 本，服务端串行 2 秒、连续失败会自行停止。
+   补完刷新当前页；名单里多出多少本取决于补到的作者性别，空列表时提示再点一次。 */
+export async function enrichBookMeta() {
+    const btn = /** @type {HTMLButtonElement} */ (document.getElementById('enrichMetaBtn'));
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = '补充中…';
+    try {
+        const body = await enrichBookMetaApi(5);
+        const result = (body && body.data) || {};
+        const failed = Number(result.failed) || 0;
+        showToast((body && body.message) || '作者信息已更新',
+            failed ? 'warn' : 'success', 8000);
+        if (state.currentCategory === 'ALL') {
+            loadData(true);
+        }
+    } catch (err) {
+        showToast('补作者信息失败: ' + (err.message || err), 'error', 7000);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '补作者信息';
     }
 }
 
@@ -514,12 +558,14 @@ export function renderWithVerdicts(data) {
     loadVerdictsForCurrentPage();
 }
 
-/* 当前页（本地切片）里有 bookId 的书：翻页/每页条数变化时它跟着变 */
+/* 当前页里有 bookId 的书：服务端分页时响应本身就只有一页，分类视图仍按本地切片 */
 export function currentPageBooks() {
     if (!state.lastData || !Array.isArray(state.lastData.data)) return [];
-    const size = getEffectivePageSize();
-    const from = (state.currentPage - 1) * size;
-    return state.lastData.data.slice(from, from + size).filter(book => book.bookId);
+    const rows = typeof state.lastData.total === 'number'
+        ? state.lastData.data
+        : state.lastData.data.slice((state.currentPage - 1) * getEffectivePageSize(),
+            state.currentPage * getEffectivePageSize());
+    return rows.filter(book => book.bookId);
 }
 
 /* 同一本书可能挂在多个分类行：结论按 bookId 回写到本地缓存 */

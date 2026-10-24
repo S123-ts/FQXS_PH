@@ -2,7 +2,6 @@ package org.example.fqxs.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.example.fqxs.client.ChapterClient;
 import org.example.fqxs.client.ThirdPartyChapterClient;
 import org.example.fqxs.config.AiDetectConfig;
 import org.example.fqxs.exception.CrawlException;
@@ -16,12 +15,11 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 取样器：按三档规则抽章节、过滤 VIP 试读、拼接样本，并维护全局上游节流。
  *
- * <p>2026-10-22 起重构为「规则 → 位置 + 数据源 + 是否落库」的固定配方：</p>
+ * <p>三档规则由「规则 → 位置 + 数据源 + 是否落库」固定组合：</p>
  * <ul>
  *   <li>{@code head}（默认）：全书前 10 章，走官网 SSR，正文落库（{@link ChapterContentService}），
  *       第二次起零上游请求；</li>
@@ -29,9 +27,9 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li>{@code random}：第 11 章起随机抽两段、每段 5 章，走第三方会员通道。</li>
  * </ul>
  *
- * <p><b>位置按全书算，不按"可读区"算</b>——这是本次最关键的一处修正。旧实现里
+ * <p><b>位置按全书算，不按"可读区"算</b>。旧实现里
  * {@code readable = min(total, free-head-chapters)}，所有策略都在可读区内挑，
- * 于是「最新 10 章」实际取到的是第 1–10 章、「随机」也只在第 1–10 章里随机。</p>
+ * 因此「最新 10 章」实际取到第 1–10 章，「随机」也只在第 1–10 章内随机。</p>
  *
  * <p>第三方通道不可用（冷却/关闭）时，{@code recent} / {@code random} <b>直接报错</b>，
  * 不静默降级成前 10 章：降级会让 {@code sample_mode} 与实际取样不符，结论无法解释。</p>
@@ -78,13 +76,11 @@ public class AiSampleCollector {
         }
     }
 
-    private final ChapterClient chapterClient;
+    private final ChapterDirectoryService directoryService;
     private final ThirdPartyChapterClient thirdPartyChapterClient;
     private final ChapterContentService chapterContentService;
     private final AiDetectConfig aiDetectConfig;
-
-    /** 全局上游节流槽：所有取样线程共享，模型调用不走这里。 */
-    private final AtomicLong nextUpstreamSlotMillis = new AtomicLong();
+    private final UpstreamThrottle upstreamThrottle;
 
     /**
      * 计算章节计划：取样规则决定"查哪几章、走哪一路"。
@@ -99,7 +95,8 @@ public class AiSampleCollector {
         if (effective.usesThirdParty()) {
             requireThirdParty();
         }
-        List<String> itemIds = chapterClient.listChapterIds(bookId);
+        List<String> itemIds = directoryService.listChapterIds(bookId,
+                aiDetectConfig.getRequestIntervalMillis());
         int total = itemIds.size();
         int readable = readableUpperBound(total);
         Set<Integer> picked = pickIndices(total, readable, effective);
@@ -385,22 +382,11 @@ public class AiSampleCollector {
      * 全局上游节流：章节抓取前先占一个时间槽，把下一次请求推后 requestIntervalMillis。
      * 并发初筛时所有线程共享这个节拍；模型调用不走这里，库命中也不该白等——
      * 所以只有真正回源的分支才调它。
+     *
+     * <p>节拍本体在 {@link UpstreamThrottle}：书源阅读端点与 AI 判定共用同一条时间轴，
+     * 否则两条线各自限速、叠加起来仍会触发上游风控。</p>
      */
     public void awaitUpstreamSlot() {
-        long interval = aiDetectConfig.getRequestIntervalMillis();
-        if (interval <= 0) {
-            return;
-        }
-        long slot = nextUpstreamSlotMillis.updateAndGet(prev ->
-                Math.max(prev, System.currentTimeMillis()) + interval);
-        long waitMillis = slot - System.currentTimeMillis();
-        if (waitMillis <= 0) {
-            return;
-        }
-        try {
-            Thread.sleep(waitMillis);
-        } catch (InterruptedException interruptedException) {
-            Thread.currentThread().interrupt();
-        }
+        upstreamThrottle.awaitSlot(aiDetectConfig.getRequestIntervalMillis());
     }
 }

@@ -113,7 +113,8 @@
     }
     .book-item .desc {
         font-size: var(--fs-xs);
-        -webkit-line-clamp: 2;
+        /* 手机首屏密度：简介压到 1 行，一屏能多露一张卡 */
+        -webkit-line-clamp: 1;
     }
     .book-item .meta {
         font-size: 11px;
@@ -155,8 +156,7 @@
         padding: 5px 8px;
     }
     /* 窄屏下连体的数字框再收一档，保证整组不被挤出边界 */
-    #customPageSize,
-    .ctl-ai .combo-aux {
+    #customPageSize {
         width: 58px;
     }
     /* 手机端动作层排成两列网格：刷新 / 一键获取并排 */
@@ -168,7 +168,7 @@
     .ctl-actions > .btn {
         justify-content: center;
     }
-    /* AI 工具簇在窄屏独占整行：里面是 AI 判定组（已折成 2×2）+ API 密钥 */
+    /* AI 工具簇在窄屏独占整行：里面是 AI 判定组（已压成两行）+ API 密钥 */
     .ctl-actions > .ctl-tail {
         grid-column: 1 / -1;
         display: grid;
@@ -184,53 +184,59 @@
         justify-content: center;
         width: 100%;
     }
-    /* AI 工具组在手机上改成 2×2 网格：上行「标签 + 下拉」，下行两颗按钮各占一列。
-       靠 flex-wrap 折行会让「校验本页」留在第一行、「AI 初筛」掉到第二行，参差不齐 */
+    /* AI 工具组在手机上压成两行：
+       第一行两颗下拉（引擎与取样按 1 : 1.15 分，取样文案更长），
+       第二行「重判 + 校验选中 + AI 初筛」。
+       标签只在桌面显示——下拉自身带选项文案，灰底托盘也标明了这是 AI 工具区。
+       旧版 2×2 网格要四行（引擎/取样/重判/按钮），展开控制区时会把列表推出屏幕。 */
     .ctl-ai {
         flex: 1 1 100%;
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: auto minmax(0, 0.9fr) minmax(0, 1.25fr);
         align-items: center;
         gap: 6px;
-        padding: 8px;
+        padding: 6px;
+    }
+    .ctl-ai > .ctl-ai-label {
+        display: none;
     }
     .ctl-ai > .select {
-        grid-column: 2;
         width: 100%;
         min-width: 0;
         max-width: none;
+        padding-left: 4px;
+        padding-right: 4px;
+    }
+    #aiEngineSelect {
+        grid-column: 1 / 3;
+        grid-row: 1;
+    }
+    #sampleSelect {
+        grid-column: 3;
+        grid-row: 1;
+    }
+    .ctl-ai > .ctl-check {
+        grid-column: 1;
+        grid-row: 2;
+        justify-self: start;
+    }
+    #aiPageBtn {
+        grid-column: 2;
+        grid-row: 2;
+    }
+    #aiSweepBtn {
+        grid-column: 3;
+        grid-row: 2;
     }
     .ctl-ai > .btn {
+        width: 100%;
+        min-width: 0;
+        padding-left: 4px;
+        padding-right: 4px;
         justify-content: center;
-    }
-    /* 取样连体框占满第二列；内层下拉允许压缩，否则 420px 下会顶出组边界 */
-    .ctl-ai > .ctl-combo {
-        width: 100%;
-        min-width: 0;
-    }
-    .ctl-ai > .ctl-combo > .select {
-        width: 100%;
-        min-width: 0;
-        max-width: none;
-    }
-    /* 「重判」独占一行：它是修饰项，和两颗主按钮挤在一格会点错。
-       独占后「校验本页 / AI 初筛」正好落在下一行两列，不需要再让 AI 初筛跨整行 */
-    .ctl-ai > .ctl-check {
-        grid-column: 1 / -1;
-        justify-self: center;
     }
     .ctl-actions > .btn-ghost {
         margin-left: 0;
-    }
-    .book-item .cover {
-        width: 42px;
-        height: 58px;
-    }
-    .book-item .rank {
-        width: 28px;
-        height: 28px;
-        min-width: 28px;
-        font-size: 16px;
     }
     .book-item .info-row .chip {
         font-size: 11px;
@@ -273,22 +279,30 @@
         grid-column: 1 / -1;
         justify-content: center;
     }
-    /* 「每页显示」与「展示分类」各占一列；标签在上、控件占满下方，
-       两者底边对齐（展示分类那颗按钮用 flex-end 压到底） */
+    /* 「每页显示」与「展示分类」各占一列；每页显示的标签与下拉并排，
+       省掉一整行标签高度；展示分类按钮铺满并压到同一底边 */
     .ctl-row-primary > .ctl-pagesize,
+    .ctl-row-primary > .ctl-view {
+        justify-content: flex-end;
+        min-width: 0;
+    }
+    .ctl-row-primary > .ctl-pagesize {
+        flex-direction: row;
+        align-items: center;
+        gap: 4px;
+    }
     .ctl-row-primary > .ctl-view {
         flex-direction: column;
         align-items: stretch;
-        justify-content: flex-end;
-        gap: 4px;
-        min-width: 0;
     }
     .ctl-row-primary > .ctl-pagesize > label {
         font-size: var(--fs-xs);
+        white-space: nowrap;
     }
     .ctl-row-primary .ctl-combo {
         width: 100%;
         min-width: 0;
+        flex-shrink: 1;
     }
     .ctl-row-primary .ctl-combo > .select,
     .ctl-row-primary .ctl-combo > .input {
@@ -305,7 +319,7 @@
 
     /* ---------- 筛选栏同样改成 2 列 ----------
        分类下拉独占整行；字数 / 状态并排；「只看已拉黑」单独一行靠左。
-       标签压在控件上方，避免「字数：」和下拉在窄格里互相挤。 */
+       标签与控件同行：每个标签只有 3 个字，压在上方会白占一整行高度。 */
     .filter-bar {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -313,68 +327,62 @@
     }
     .filter-bar > .filter-dropdown-group {
         grid-column: 1 / -1;
+        flex-direction: row;
+        align-items: center;
+        gap: 4px;
     }
     .filter-bar > .filter-group {
-        flex-direction: column;
-        align-items: stretch;
+        flex-direction: row;
+        align-items: center;
         gap: 4px;
         min-width: 0;
     }
     .filter-bar > .filter-group > label {
         font-size: var(--fs-xs);
+        white-space: nowrap;
     }
     .filter-bar > .filter-group > .select {
-        width: 100%;
+        flex: 1;
+        width: auto;
+        min-width: 0;
+    }
+    .filter-bar > .filter-dropdown-group > .dropdown-multi {
+        flex: 1;
         min-width: 0;
     }
     .filter-bar > .filter-group:last-child {
         grid-column: 1 / -1;
         align-items: flex-start;
     }
+    /* 两个视图过滤重新横排：外层占用整行，但内部不拆成上下两格 */
+    .filter-bar > .filter-group.filter-flags {
+        flex-direction: row;
+        align-items: center;
+        gap: 12px;
+    }
+    /* 作者筛选 + 补作者信息：控件与按钮同一行，占满整行 */
+    .filter-bar > .filter-group.filter-author {
+        grid-column: 1 / -1;
+    }
+    .filter-author .btn {
+        flex-shrink: 0;
+        min-height: 36px;
+    }
 
-    /* 批量条：三颗按钮改成 3 列网格铺满。
-       原来 .batch-actions 是 inline-flex + margin-left:auto，窄屏折行后按钮悬在中间，
-       与上面整块网格的左右边缘对不齐。 */
-    .batch-bar {
-        gap: 8px;
-    }
-    .batch-actions {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 6px;
-        width: 100%;
-        margin-left: 0;
-    }
-    .batch-actions > .btn {
-        justify-content: center;
-        width: 100%;
-        padding-left: 4px;
-        padding-right: 4px;
-    }
+    /* 批量条的手机布局在 ≤640px 卡片块里统一定义（未选中不占位、选中后浮动），
+       这里不再另写一套 3 列网格，避免两档断点各说各话 */
 
     /* ---------- 触摸目标与 iOS 缩放 ----------
-       实测（390px）：勾选框 15×15、行内按钮 23px 高、批量条 28px——手指点不准；
-       input/select 字号 13–14px，iOS 聚焦时会自动放大整个页面（≥16px 才不放大）。 */
-    /* 勾选框 15px 手指点不准，放大到 20px。
-       选择器必须带 .book-item：components.css 里同名的 .row-check 权重相同，
-       靠加载顺序分胜负太脆，直接提一档 */
-    .book-item > .row-check {
-        width: 20px;
-        height: 20px;
-    }
-    /* 行内按钮（徽章 / 详情 / 逐章校验 / 拉黑）抬到 30px：
-       44px 是理想值，但这一簇在手机上本来就要折成 3 行，再加高会把卡片撑得更长 */
-    .book-item .title-actions .ai-badge,
+       390px 视口：勾选框 15×15、行内按钮 23px 高、批量条 28px，均低于可点击尺寸下限；
+       input/select 字号 13–14px，iOS 聚焦时会自动放大整个页面（≥16px 不放大）。 */
+    /* 勾选框与卡片动作条的尺寸在 ≤640px 卡片块里统一处理 */
+    /* 更多菜单里的次级按钮（逐章校验 / 详情）保持 30px 行高；
+       卡片上的结论徽章与动作按钮由下方 ≤640px 的卡片块统一抬到 35/40px */
     .book-item .title-actions .zq-btn,
-    .book-item .title-actions .block-btn,
     .book-item .title-actions .ai-detail-btn {
         min-height: 30px;
         display: inline-flex;
         align-items: center;
-    }
-    .btn-sm,
-    .batch-actions > .btn {
-        min-height: 32px;
     }
     /* 表单控件统一 16px：低于这个值 iOS 会在聚焦时放大页面 */
     .select,
@@ -384,11 +392,24 @@
     }
 }
 
+/* ---------- 中等宽度（769–999px）：AI 操作簇独占一行 ----------
+   1000px 以下时「刷新/抓取 + AI 工具簇」放不进同一行；但工具簇本身
+   约 920px，换行后仍超出视口（900px 下 docW 956）。
+   让工具簇占满整行、内部再换行，900px 附近不出现横向滚动条。
+   1000px 以上可同排放置，保持原布局。 */
+@media (min-width: 769px) and (max-width: 999px) {
+    .ctl-actions > .ctl-tail {
+        flex-basis: 100%;
+        margin-left: 0;
+    }
+}
+
 /* ---------- 桌面吸顶工具条 ----------
    统计卡吸在导航下方；越过整张卡后收起 KPI 与筛选行，只留两层控件（约 130px）。
    切榜单、换引擎、校验本页不必再滚回顶部。移动端沿用折叠摘要条，不启用本段；
-   1000px 附近控制栏会折成三行，吸顶占高太多，因此从 1100px 起才启用 */
-@media (min-width: 1100px) {
+   吸顶后 is-pinned 会收起 KPI 与筛选行，因此 1000px 起启用；旧断点 1100 让
+   1000–1099 成为空档：工具栏折三行、一滚就没了，反而更需要吸顶 */
+@media (min-width: 1000px) {
     .stats {
         position: sticky;
         top: var(--nav-h, 47px);
@@ -417,5 +438,311 @@
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
         scroll-behavior: auto !important;
+    }
+}
+
+/* ---------- 手机卡片（≤640px） ----------
+   桌面那套「勾选 + 名次 + 封面 + 正文」四列行在 390px 只剩 222px 正文，
+   作者/在读/字数/分类/更新/章节只能逐条换行。这里改成「封面列 + 正文列」：
+   名次压到封面左上、勾选移到右上，正文拿回约 280px；
+   结论、元信息、描述、动作按纵向四条带排，动作条占满整行、拇指可点。
+   桌面 DOM 完全共用，拆行只发生在这个断点内。 */
+@media (max-width: 640px) {
+    .book-item {
+        display: grid;
+        grid-template-columns: 48px minmax(0, 1fr);
+        column-gap: 10px;
+        align-items: start;
+        padding: 12px 14px;
+    }
+    .book-item > .cover {
+        grid-column: 1;
+        grid-row: 1;
+        width: 48px;
+        height: 66px;
+    }
+    /* 名次章压在封面左上：金/银/铜底片保留，但不再单独占一列。
+       缩到 22px：28px 会盖住 48×66 封面约 17% 的面积 */
+    .book-item > .rank {
+        position: absolute;
+        top: 6px;
+        left: 6px;
+        z-index: 2;
+        width: 22px;
+        height: 22px;
+        min-width: 22px;
+        border-radius: 50%;
+        font-size: 12px;
+        box-shadow: 0 0 0 2px var(--surface), var(--shadow-sm);
+    }
+    /* 勾选：热区 44×44 由 label 承担，视觉仍是 22px 原生方框（卡片右上角）。
+       不用 input 的伪元素自绘，是为了避开 iOS Safari 对输入框伪元素支持不一致的问题 */
+    .book-item > .row-check-hit {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        z-index: 3;
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        cursor: pointer;
+    }
+    .book-item > .row-check-hit > .row-check {
+        width: 22px;
+        height: 22px;
+        margin: 0;
+    }
+    /* 正文：display:contents 把标题行拆成网格项，才能把徽章和动作挪到独立行 */
+    .book-item > .content {
+        grid-column: 2;
+        grid-row: 1;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-content: start;
+        gap: 8px;
+        min-width: 0;
+    }
+    .book-item .title {
+        display: contents;
+    }
+    .book-item .title > a {
+        order: 0;
+        /* 右上角 44px 勾选热区会压住标题尾部，留出避让距离 */
+        padding-right: 38px;
+        font-size: 16px;
+        line-height: 1.35;
+    }
+    .book-item .title > .status {
+        order: 1;
+        justify-self: start;
+        margin-top: -2px;
+    }
+    .book-item .title-actions {
+        display: contents;
+    }
+    .book-item .verdicts {
+        order: 2;
+        justify-content: flex-start;
+    }
+    /* 徽章本身也是重跑按钮：35px 是手指能点准的下限内折中（再高会挤掉一行卡内信息） */
+    .book-item .verdicts .ai-badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 35px;
+        padding: 2px 10px;
+        font-size: var(--fs-xs);
+    }
+    .book-item .info-row {
+        order: 3;
+        margin-top: 0;
+        gap: 6px 8px;
+        font-size: var(--fs-xs);
+    }
+    .book-item .info-row .chip {
+        padding: 2px 8px;
+    }
+    .book-item .info-row .chip-full {
+        display: none;
+    }
+    .book-item .info-row .chip-short {
+        display: inline;
+    }
+    .book-item .desc {
+        order: 4;
+        margin-top: 0;
+        font-size: var(--fs-xs);
+    }
+    /* 动作条：关注 / 更多 / 拉黑 等宽平分整行，40px 高，手指不用瞄准 */
+    .book-item .row-actions {
+        order: 5;
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+    }
+    .book-item .row-actions > * {
+        flex: 1 1 0;
+        min-width: 0;
+        display: flex;
+    }
+    .book-item .row-actions .more-btn,
+    .book-item .row-actions .watch-btn,
+    .book-item .row-actions .block-btn {
+        flex: 1;
+        width: 100%;
+        min-height: 40px;
+        justify-content: center;
+        align-items: center;
+        padding: 4px 8px;
+        font-size: var(--fs-sm);
+        white-space: normal;
+    }
+    /* 「更多」现在是动作条的第一格，菜单若仍按 right:0 对齐会从卡片左侧伸出屏幕；
+       手机端改成从按钮左缘向右展开，菜单落在卡片内 */
+    .book-item .row-actions .more-menu {
+        left: 0;
+        right: auto;
+    }
+    /* 动作条与吸底分页/批量条同处一条视觉轨：打开菜单时卡片提到浮层之上，
+       菜单不会被分页条压住 */
+    .book-item.menu-open {
+        z-index: 7;
+    }
+    /* 有选中时批量条固定在 301 层，会盖住卡片菜单；菜单打开期间先收起批量条，
+       关掉菜单后 :has 自动恢复（比把整张卡抬到 300+ 更不容易压到吸顶导航） */
+    body:has(.row-more.menu-open) .batch-bar {
+        display: none;
+    }
+    /* 批量条浮出后不占文档流，给列表底部留出它的高度，避免最后一张卡被盖住 */
+    body:has(#batchBar.has-selection) #bookList {
+        padding-bottom: 72px;
+    }
+
+    /* 模态右上角的关闭键在手机上要给足热区（16px 的 ✕ 手指点不准） */
+    .modal-close {
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    /* ---------- 分页条：手机压成一行 ----------
+       原布局把首页/页码/末页/跳页铺成 5 行、137px 高，吸在底部挡住大半张卡。
+       手机只留「上一页 / 第 x / y 页 / 下一页 / 跳转」，页码窗口与首页末页隐藏 */
+    .pager {
+        gap: 6px;
+        padding: 8px;
+        padding-bottom: calc(8px + env(safe-area-inset-bottom));
+        flex-wrap: nowrap;
+    }
+    .pager-first,
+    .pager-last,
+    .pager-num,
+    .pager-ellipsis {
+        display: none;
+    }
+    .pager-label-full {
+        display: none;
+    }
+    .pager-label-short {
+        display: inline;
+    }
+    .pager-prev {
+        order: 0;
+    }
+    .pager-info {
+        order: 1;
+        padding: 0 2px;
+        font-size: var(--fs-xs);
+    }
+    .pager-next {
+        order: 2;
+    }
+    .pager-jump {
+        order: 3;
+        /* 不贴右：贴右会在「第 x / y 页」与「跳转」之间留出上百像素空档 */
+        margin-left: 0;
+        gap: 4px;
+    }
+    .pager-jump-label,
+    .pager-jump-unit {
+        display: none;
+    }
+    .pager-prev,
+    .pager-next {
+        min-width: 44px;
+        min-height: 40px;
+        padding: 0 10px;
+    }
+    .pager-jump .input {
+        width: 52px;
+        min-height: 40px;
+        padding: 0 6px;
+        font-size: 16px;
+    }
+    .pager-jump-btn {
+        min-height: 40px;
+        padding: 0 10px;
+    }
+
+    /* 批量条：未选中不占位；选中后浮在分页条上方，滚到哪都能批量操作。
+       图标让位给短文案（批量拉黑 → 拉黑），三颗按钮在 360px 下也能同排 */
+    .batch-bar:not(.has-selection) {
+        display: none;
+    }
+    .batch-bar {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: calc(66px + env(safe-area-inset-bottom));
+        z-index: calc(var(--z-dropdown) + 1);
+        gap: 6px;
+        padding: 8px 10px;
+        flex-wrap: nowrap;
+        box-shadow: var(--shadow-lg);
+    }
+    .batch-all {
+        gap: 4px;
+        font-size: var(--fs-xs);
+        white-space: nowrap;
+    }
+    .batch-all .label-full {
+        display: none;
+    }
+    .batch-all .label-short {
+        display: inline;
+    }
+    .batch-count {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: var(--fs-xs);
+    }
+    .batch-actions {
+        display: flex;
+        width: auto;
+        gap: 6px;
+        margin-left: auto;
+    }
+    .batch-actions .btn {
+        flex: 0 0 auto;
+        width: auto;
+        min-width: 52px;
+        min-height: 40px;
+        padding: 0 8px;
+        font-size: var(--fs-xs);
+    }
+    .batch-actions .btn-ico {
+        display: none;
+    }
+    .batch-actions .label-full {
+        display: none;
+    }
+    .batch-actions .label-short {
+        display: inline;
+    }
+}
+
+/* 手机名次章在深色封面上的对比度：亮色档的半透明金/银/铜底会被封面图吃掉，
+   换成带不透明底色的圆章，只保留数字的奖牌色 */
+@media (max-width: 640px) and (prefers-color-scheme: dark) {
+    .book-item > .rank,
+    .book-item > .rank.top1,
+    .book-item > .rank.top2,
+    .book-item > .rank.top3 {
+        background: rgba(22, 27, 35, 0.88);
+        box-shadow: 0 0 0 2px var(--surface), var(--shadow-sm);
+    }
+}
+
+/* 极窄屏（320px）：分页条再让一步，只保留翻页与页码，跳页交给横屏/桌面；
+   批量条的选择计数也让位，保证「全选 + 三颗操作」仍能同排 */
+@media (max-width: 340px) {
+    .pager-jump {
+        display: none;
+    }
+    .batch-count {
+        display: none;
     }
 }

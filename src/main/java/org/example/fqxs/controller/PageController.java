@@ -11,10 +11,15 @@ public class PageController {
         return "redirect:/index.html";
     }
 
-    /** 登录页：静态页，路由留一个 /login 便于手输地址与拦截器回跳。 */
+    /**
+     * 登录页：静态页，路由留一个 /login 便于手输地址与拦截器回跳。
+     *
+     * <p>必须用 forward：redirect 不传播 query，登录拦截器拼的 {@code redirect=}
+     * 会在这一跳丢掉，登录后一律回首页。</p>
+     */
     @GetMapping("/login")
     public String login() {
-        return "redirect:/login.html";
+        return "forward:/login.html";
     }
 
     /** 失败日志页：独立静态页，跳转入口在首页工具栏的 AI 簇里。 */

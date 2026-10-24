@@ -25,7 +25,7 @@ public class AiDetectConfig {
     /**
      * 默认取样章数：不带策略时取前 N 章。
      *
-     * <p>2026-10-22 起默认策略改为"前 N 章"（原为"中段+最新"）：未登录状态只有
+     * <p>默认策略为"前 N 章"（原为"中段+最新"）：未登录状态只有
      * 前 10 章是完整正文，中段与最新段大面积落在 150–180 字试读上，样本质量反而差。</p>
      */
     private int sampleHeadChapters = 10;
@@ -44,23 +44,38 @@ public class AiDetectConfig {
 
     /**
      * 可读章节上限：未接入会员正文通道时，番茄未登录只给前 10 章完整正文
-     * （第 11 章起实测 150–180 字试读）。取样候选与回退扫描都钳在这个区间内，
-     * 免得把上游请求浪费在必然只有试读的深章上。0 或负数 = 不限，
+     * （第 11 章起为 150–180 字试读）。取样候选与回退扫描都钳在这个区间内，
+     * 避免把上游请求浪费在必然只有试读的深章上。0 或负数 = 不限，
      * 将来接入会员通道后用它做全书中段/最新抽查。
      */
     private int freeHeadChapters = 10;
 
     /**
-     * 第三方正文通道地址：补官方未登录取不到的会员章节（第 11 章起）。
-     * 走的是别人的共享线路，302 目标按天变，所以只填源站域名、让它自己跟随重定向。
+     * 第三方线路清单（逗号分隔，按顺序优先）：会员正文 {@code /content}、详情 {@code /info}
+     * 与目录 {@code /catalog} 三条链路共用这一组地址。
+     *
+     * <p>走的是别人的共享线路，302 目标按天变，所以只填源站域名、让它自己跟随重定向。
+     * 某一条挂了只冷却它自己，取样与目录会自动改用清单里的下一条。</p>
      */
-    private String thirdPartyBaseUrl = "https://fq-book.netsite.cc";
+    private List<String> thirdPartyBaseUrls = new ArrayList<>(List.of("https://fq-book.netsite.cc"));
 
-    /** 是否允许使用第三方正文通道做全书抽查。关掉就退回「只用可读区」的降级形态。 */
+    /** 第三方线路整体是否可用；关掉就退回「只用官方可读区」的降级形态。 */
     private boolean thirdPartyEnabled = true;
 
-    /** 第三方通道结构性失败后的冷却秒数：期间不再打它，免得每本书都白等一次。 */
+    /** 单条线路结构性失败后的冷却秒数：期间不再打它，免得每本书都白等一次。 */
     private int thirdPartyCooldownSeconds = 300;
+
+    /** 补作者信息/评分：只取当前榜单热度前 N 本，避免把共享线路打满。 */
+    private int bookMetaTopRank = 50;
+
+    /** 单次最多请求几本（第三方 /info 约 19KB/本，线路很小）。 */
+    private int bookMetaBatchMax = 10;
+
+    /** 两次 /info 之间的固定间隔：不并发、不连打。 */
+    private long bookMetaIntervalMillis = 2000;
+
+    /** 评分刷新周期（天）。 */
+    private int ratingRefreshDays = 10;
 
     /** 同一引擎连续失败多少次就自动停用（判定成功会清零计数，所以这里数的是"连着"）。 */
     private int faultSuspendThreshold = 3;
@@ -74,7 +89,7 @@ public class AiDetectConfig {
     /**
      * 单本送判的最大字符数，超出截断。
      *
-     * <p>2026-10-22 从 8000 提到 24000：取样改成「前 10 章 / 末 10 章 / 两段各 5 章」后，
+     * <p>取值 24000：取样改成「前 10 章 / 末 10 章 / 两段各 5 章」后，
      * 8000 字会在第 4 章就截断，"前 10 章"名不副实。24000 字约等于 10 章 × 2400 字，
      * 仍在千帆 32k 上下文的余量内（中文约 1 字 1 token，加提示词不到 25k）。</p>
      */
@@ -96,11 +111,11 @@ public class AiDetectConfig {
     private int sweepLimitMax = 30;
 
     /**
-     * 每日模型调用次数上限（安全测试报告 M1）：0 或负数表示不限。
+     * 每日模型调用次数上限：0 或负数表示不限。
      *
      * <p>计数口径是 {@code ai_usage} 里当天的行数（一次真实出网调用一行），
      * 由 {@code AiDailyQuota} 在 {@code AiDetectClient} 每次请求前把关。
-     * 它挡的是「循环点按钮/脚本刷接口把免费额度烧完」，不是精确计费——
+     * 它限制的是循环点击按钮或脚本刷接口造成的额度消耗，不承担精确计费——
      * 计数在调用前读、用量在调用后异步落库，所以最后几次可能略超上限。</p>
      */
     private int dailyCallLimit = 500;

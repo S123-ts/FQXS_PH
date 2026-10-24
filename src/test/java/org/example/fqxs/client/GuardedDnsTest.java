@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 连接层 SSRF 闸门（线上实测报告 §7.1 / §7.4 的回归）。
+ * 连接层 SSRF 闸门。
  *
  * <p>归一器只判字面量，域名能解析到哪只有建连时才知道；这里注入可控的解析结果，
  * 不依赖真实 DNS，也就不会因为测试机器在哪个网段而变绿或变红。</p>

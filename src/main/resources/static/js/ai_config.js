@@ -13,9 +13,9 @@ import {
 import { escapeText, escapeAttr, showToast } from './render.js';
 import { loadAiStatus } from './ai_actions.js';
 
-/* 三个内置引擎的展示信息与官方取 Key 入口。文案里给出「在哪注册、点哪、Key 长什么样」，
-   用户不用再去翻文档；更长的图文步骤见 README「AI 文判定」。
-   2026-10-22 起移除朱雀通道，判定统一走 OpenAI 兼容的三家。 */
+/* 三个内置引擎的展示信息与官方取 Key 入口。文案给出注册入口与 Key 形态，
+   减少查阅文档的步骤；更长的图文步骤见 README「AI 文判定」。
+   朱雀通道已移除，判定统一走 OpenAI 兼容的三家。 */
 const ENGINES = [
     {
         id: 'glm-4-flash',
@@ -149,24 +149,41 @@ export async function saveAiKeys() {
     saveInFlight = true;
     setSaveBusy(true);
     try {
+        // 逐项收集成败：第 2 个失败时第 1 个已经落盘，不能笼统说「保存失败」
+        let saved = 0;
+        const failures = [];
         for (const item of pending) {
-            await saveAiKeyApi(item.engine, item.key);
+            try {
+                await saveAiKeyApi(item.engine, item.key);
+                saved++;
+            } catch (err) {
+                failures.push(`${item.engine}：${err.message || err}`);
+            }
         }
         for (const engine of clearing) {
-            await saveAiKeyApi(engine, '');
+            try {
+                await saveAiKeyApi(engine, '');
+                saved++;
+            } catch (err) {
+                failures.push(`${engine}：${err.message || err}`);
+            }
         }
-        const parts = [];
-        if (pending.length) parts.push(`保存 ${pending.length} 个`);
-        if (clearing.length) parts.push(`清除 ${clearing.length} 个`);
-        showToast(`密钥已${parts.join('、')}，立即生效`, 'success', 5000);
+        if (failures.length === 0) {
+            const parts = [];
+            if (pending.length) parts.push(`保存 ${pending.length} 个`);
+            if (clearing.length) parts.push(`清除 ${clearing.length} 个`);
+            showToast(`密钥已${parts.join('、')}，立即生效`, 'success', 5000);
 
-        // 掩码与引擎下拉都要跟着变：先重画面板，再刷新 status（下拉来源）
-        renderPanel(body, await loadKeys());
-        refreshQuota(); // Key 变了余额也跟着变
-        await loadAiStatus();
-    } catch (err) {
-        console.error('保存密钥失败:', err);
-        showToast('保存失败: ' + (err.message || err), 'error', 7000);
+            // 掩码与引擎下拉都要跟着变：先重画面板，再刷新 status（下拉来源）
+            renderPanel(body, await loadKeys());
+            refreshQuota(); // Key 变了余额也跟着变
+            await loadAiStatus();
+        } else {
+            // 失败时不重画面板：输入还在框里，用户可以直接补存
+            showToast(`已保存 ${saved} 个，失败 ${failures.length} 个（${failures.join('；')}）`,
+                'error', 9000);
+            refreshQuota();
+        }
     } finally {
         saveInFlight = false;
         setSaveBusy(false);
@@ -195,10 +212,14 @@ async function loadKeys() {
 function renderPanel(host, keys) {
     // 引擎列表以服务端注册表为准（内置 + 用户自带），本地 ENGINES 只提供取 Key 入口文案
     const entries = Object.entries(keys || {});
+    /* 手机上面板可视高度只有 86vh：所有引擎默认收起，先看到三个标题行与状态；
+       桌面仍保持「已配置展开、未配置收起」的原行为 */
+    const compact = window.matchMedia('(max-width: 640px)').matches;
     host.innerHTML = entries.map(([id, state]) => {
         const meta = /** @type {{name?: string, tip?: string, url?: string, homeUrl?: string, linkText?: string}} */ (
             ENGINES.find(engine => engine.id === id) || {});
         const configured = !!state.configured;
+        const collapsed = !configured || compact;
         const statusClass = configured ? 'key-status ok' : 'key-status';
         const statusText = configured ? `已配置 ${escapeText(state.masked || '')}` : '未配置';
         const name = state.name || meta.name || id;
@@ -209,12 +230,13 @@ function renderPanel(host, keys) {
             : '';
         // 未配置的引擎默认收起：面板一打开就先看到"已经配好的"，需要配置的再点开
         return `
-            <div class="key-row${configured ? '' : ' collapsed'}" data-engine="${escapeAttr(id)}">
+            <div class="key-row${collapsed ? ' collapsed' : ''}" data-engine="${escapeAttr(id)}"
+                 data-configured="${configured ? '1' : '0'}">
                 <div class="key-head">
                     <span class="key-name">${escapeText(name)}${state.builtin ? '' : ' · 自定义'}</span>
                     <span class="${statusClass}">${statusText}</span>
-                    ${configured ? '' : `<button type="button" class="key-expand" data-action="ai-key-expand"
-                            data-engine="${escapeAttr(id)}">配置</button>`}
+                    ${(!configured || compact) ? `<button type="button" class="key-expand" data-action="ai-key-expand"
+                            data-engine="${escapeAttr(id)}">${collapsed ? (configured ? '编辑' : '配置') : '收起'}</button>` : ''}
                     <button type="button" class="key-expand" data-action="ai-engine-test"
                             data-engine="${escapeAttr(id)}">测试</button>
                     ${state.builtin ? '' : `<button type="button" class="key-expand" data-action="ai-engine-delete"
@@ -324,10 +346,35 @@ export async function testEngine(engine, btn) {
     }
 }
 
+/* 删除确认态：与行内「拉黑」同一套交互（第一次点变成确认，3 秒不点自动复位），
+   不用 window.confirm：原生弹窗样式不可控，与应用内的交互语言也不一致 */
+let deleteConfirmBtn = null;
+let deleteConfirmTimer = 0;
+
+function resetDeleteConfirm() {
+    if (deleteConfirmBtn) {
+        deleteConfirmBtn.classList.remove('confirm');
+        deleteConfirmBtn.removeAttribute('data-confirm');
+        deleteConfirmBtn.textContent = '删除';
+    }
+    clearTimeout(deleteConfirmTimer);
+    deleteConfirmBtn = null;
+}
+
 /* 删除自定义引擎：内置引擎后端会拒绝 */
-export async function removeEngine(engine) {
+export async function removeEngine(engine, btn) {
     if (!engine) return;
-    if (!window.confirm(`删除引擎 ${engine}？已判结论会保留在明细表里。`)) return;
+    if (!btn) return;
+    if (btn.dataset.confirm !== '1') {
+        resetDeleteConfirm();
+        deleteConfirmBtn = btn;
+        btn.classList.add('confirm');
+        btn.dataset.confirm = '1';
+        btn.textContent = '确认删除?';
+        deleteConfirmTimer = window.setTimeout(resetDeleteConfirm, 3000);
+        return;
+    }
+    resetDeleteConfirm();
     try {
         const body = await deleteAiEngineApi(engine);
         showToast((body && body.message) || '已删除', 'success', 5000);
@@ -346,7 +393,7 @@ export function toggleKeyRow(engine, btn) {
     if (!row) return;
     const collapsed = row.classList.toggle('collapsed');
     if (btn) {
-        btn.textContent = collapsed ? '配置' : '收起';
+        btn.textContent = collapsed ? (row.getAttribute('data-configured') === '1' ? '编辑' : '配置') : '收起';
     }
     if (!collapsed) {
         /** @type {HTMLElement} */ (row.querySelector('.key-input'))?.focus();
@@ -423,7 +470,7 @@ function renderQuota(quota) {
             + consoleLink(quota.consoleUrl, '控制台');
     }
     // 平台没有查询接口：给出规则说明与出处，不编造剩余量。
-    // free === false 说明当前选的是付费型号，必须显式警示，别让人以为还在免费跑
+    // free === false 说明当前选的是付费型号，必须显式警示，避免误认为仍在免费运行
     const tier = quota.free === true
         ? '<span class="quota-free">免费档</span>'
         : (quota.free === false ? '<span class="quota-paid">付费模型</span>' : '');

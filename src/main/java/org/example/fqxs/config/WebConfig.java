@@ -2,6 +2,7 @@ package org.example.fqxs.config;
 
 import lombok.RequiredArgsConstructor;
 import org.example.fqxs.web.AdminTokenInterceptor;
+import org.example.fqxs.web.BookSourceTokenInterceptor;
 import org.example.fqxs.web.LoginInterceptor;
 import org.example.fqxs.web.RankWriteInterceptor;
 import org.springframework.context.annotation.Bean;
@@ -16,15 +17,16 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebConfig implements WebMvcConfigurer {
 
     /**
-     * 全量爬取最长可能跑满 分类数 × (max-retries × timeout + 退避)：旧 10 分类 ≈ 465s；
-     * 目录扩到 37 个后 ≈ 29 分钟，会超出这里的 10 分钟兜底被截成 503——
-     * “展示分类”别勾太满（HANDOVER §1/§14 的预算算式）。
+     * 全量爬取最长耗时约 分类数 × (max-retries × timeout + 退避)：10 分类约 465s；
+     * 37 分类约 29 分钟，超出此处的 10 分钟兜底后会被截断为 503——
+     * “展示分类”不宜过满。
      */
     private static final long ASYNC_REQUEST_TIMEOUT = 600_000L;
 
     private final AdminTokenInterceptor adminTokenInterceptor;
     private final RankWriteInterceptor rankWriteInterceptor;
     private final LoginInterceptor loginInterceptor;
+    private final BookSourceTokenInterceptor bookSourceTokenInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
@@ -37,6 +39,8 @@ public class WebConfig implements WebMvcConfigurer {
         // /api/ai/** 会触发外部模型调用与写库，与抓取接口同一套会话写令牌保护；
         // 只读的 GET /api/ai/status 由拦截器内部按方法放行
         registry.addInterceptor(rankWriteInterceptor).addPathPatterns("/api/rank/**", "/api/ai/**");
+        // 书源端点在登录白名单里（阅读 App 无会话），由这层可选令牌单独把关
+        registry.addInterceptor(bookSourceTokenInterceptor).addPathPatterns("/api/bs/**");
     }
 
     @Override

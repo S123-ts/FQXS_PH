@@ -39,9 +39,9 @@ public class AuthController {
     /**
      * 校验账号口令并建立会话。
      *
-     * <p>成功后**先作废旧会话再新建**（防会话固定）：攻击者预先塞给受害者一个
-     * 已知的 JSESSIONID，受害者登录后攻击者就拿这个 id 直接进后台——
-     * 换 id 之后这条链断掉。新会话里只放账号名，不放口令、不放 Key。</p>
+     * <p>成功后<b>先作废旧会话再新建</b>（防会话固定）：攻击者预先塞给受害者一个
+     * 已知的 JSESSIONID，受害者登录后即可用该 id 直接进入后台——
+     * 更换 id 后这条链路断开。新会话只放账号名，不放口令与 Key。</p>
      *
      * @param body    账号与口令
      * @param request 取来源 IP 做失败限流
@@ -49,11 +49,11 @@ public class AuthController {
      */
     @Operation(summary = "登录")
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> login(@RequestBody(required = false) LoginRequest body,
+    public ResponseEntity<ApiResponse<Map<String, Object>>> login(@RequestBody LoginRequest body,
                                                                   HttpServletRequest request) {
         String source = loginGuard.sourceOf(request);
-        String username = body == null ? null : body.username();
-        String password = body == null ? null : body.password();
+        String username = body.username();
+        String password = body.password();
 
         LoginGuard.Result result = loginGuard.authenticate(source, username, password);
         switch (result) {

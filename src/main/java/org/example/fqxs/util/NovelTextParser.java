@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 排行榜 JSON 的字段取值与文案归一化。
@@ -85,8 +87,11 @@ public final class NovelTextParser {
         }
     }
 
+    /** 字数字符串开头的数字；真实上游格式是「44.6万字」，单位后缀还可能带编码损坏字节。 */
+    private static final Pattern WORD_COUNT_PREFIX = Pattern.compile("^\\s*([0-9]+(?:\\.[0-9]+)?)");
+
     /**
-     * “12.3万” / “123000” 统一折成“万”为单位的数值，供字数筛选使用。
+     * “12.3万” / “12.3万字” / “123000” 统一折成“万”为单位的数值，供字数筛选使用。
      * 无法解析时返回 0，调用方按“不满足任何字数区间”处理。
      */
     public static double parseWordCountToWan(String wordCount) {
@@ -97,12 +102,12 @@ public final class NovelTextParser {
         if (value.isEmpty()) {
             return 0;
         }
-        try {
-            return value.endsWith("万")
-                    ? Double.parseDouble(value.substring(0, value.length() - 1))
-                    : Double.parseDouble(value) / 10000.0;
-        } catch (NumberFormatException e) {
+        Matcher matcher = WORD_COUNT_PREFIX.matcher(value);
+        if (!matcher.find()) {
             return 0;
         }
+        double number = Double.parseDouble(matcher.group(1));
+        // 带单位（「万」「万字」或被编码损坏的后缀）按万；纯数字按原始字数折算
+        return value.substring(matcher.end()).trim().isEmpty() ? number / 10000.0 : number;
     }
 }

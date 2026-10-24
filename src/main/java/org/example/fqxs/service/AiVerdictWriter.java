@@ -59,7 +59,7 @@ public class AiVerdictWriter {
                            String reason, String promptId, String sampleMode, String sampleSpan,
                            String kind) {
         Runnable write = () -> transactionTemplate.executeWithoutResult(status -> {
-            upsert(bookId, engine, model, aiFlag, aiScore, reason, 0, promptId, sampleMode, sampleSpan, kind);
+            upsert(bookId, engine, model, aiFlag, aiScore, reason, 0, promptId, sampleMode, sampleSpan, kind, 0);
             novelService.applyFreeVerdict(bookId, aiFlag, aiScore, engine);
         });
         try {
@@ -80,9 +80,10 @@ public class AiVerdictWriter {
      * @param aiHit           本次是否命中（决定主表是否覆盖综合结论）
      */
     public void writeVerify(String bookId, String engine, String model, int aiFlag, double aiScore,
-                            String reason, int chaptersChecked, int chapterNo, String promptId, boolean aiHit) {
+                            String reason, int chaptersChecked, int chapterNo, String promptId, boolean aiHit,
+                            String sampleMode) {
         transactionTemplate.executeWithoutResult(status -> {
-            upsert(bookId, engine, model, aiFlag, aiScore, reason, chaptersChecked, promptId, null, null,
+            upsert(bookId, engine, model, aiFlag, aiScore, reason, chaptersChecked, promptId, sampleMode, null,
                     NovelAiVerdictLog.KIND_VERIFY, chapterNo);
             novelService.applyManualVerifyVerdict(bookId, engine, aiFlag, chaptersChecked, aiScore, aiHit);
         });
@@ -92,17 +93,11 @@ public class AiVerdictWriter {
      * 仅推进进度（已查完上限）：更新明细，不动主表综合结论。
      */
     public void writeProgress(String bookId, String engine, String model, int aiFlag, double aiScore,
-                              String reason, int chaptersChecked, int chapterNo, String promptId) {
+                              String reason, int chaptersChecked, int chapterNo, String promptId,
+                              String sampleMode) {
         transactionTemplate.executeWithoutResult(status ->
-                upsert(bookId, engine, model, aiFlag, aiScore, reason, chaptersChecked, promptId, null, null,
+                upsert(bookId, engine, model, aiFlag, aiScore, reason, chaptersChecked, promptId, sampleMode, null,
                         NovelAiVerdictLog.KIND_PROGRESS, chapterNo));
-    }
-
-    private void upsert(String bookId, String engine, String model, int aiFlag, double aiScore,
-                        String reason, int chaptersChecked, String promptId,
-                        String sampleMode, String sampleSpan, String kind) {
-        upsert(bookId, engine, model, aiFlag, aiScore, reason, chaptersChecked, promptId,
-                sampleMode, sampleSpan, kind, 0);
     }
 
     private void upsert(String bookId, String engine, String model, int aiFlag, double aiScore,
@@ -121,7 +116,7 @@ public class AiVerdictWriter {
         verdictRow.setReason(truncateReason(reason));
         verdictRow.setChaptersChecked(chaptersChecked);
         verdictRow.setPromptId(promptId);
-        // 逐章校验不取样，不要用它把整本初筛记下的档位擦掉
+        // 逐章行同样记档位：游标要靠它区分「这批进度属于哪套取样规则」
         if (sampleMode != null) {
             verdictRow.setSampleMode(sampleMode);
         }

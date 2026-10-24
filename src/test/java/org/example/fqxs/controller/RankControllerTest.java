@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.fqxs.config.FanqieConfig;
 import org.example.fqxs.model.CategoryCrawlResult;
 import org.example.fqxs.model.RankListResult;
+import org.example.fqxs.service.BookMetaEnricher;
 import org.example.fqxs.service.ConfigService;
 import org.example.fqxs.service.NovelService;
 import org.example.fqxs.service.RankService;
@@ -14,6 +15,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
@@ -48,6 +51,9 @@ class RankControllerTest {
     private NovelService novelService;
 
     @Mock
+    private BookMetaEnricher bookMetaEnricher;
+
+    @Mock
     private ConfigService configService;
 
     private final MockHttpSession session = new MockHttpSession();
@@ -61,7 +67,7 @@ class RankControllerTest {
         lenient().when(configService.getDisplayCategoryCodes()).thenReturn(List.copyOf(DEFAULT_DISPLAYED));
 
         mvc = MockMvcBuilders.standaloneSetup(
-                        new RankController(rankService, new FanqieConfig(), novelService, configService, mapper))
+                        new RankController(rankService, new FanqieConfig(), novelService, configService, bookMetaEnricher, mapper))
                 .addInterceptors(new RankWriteInterceptor(mapper))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -80,8 +86,42 @@ class RankControllerTest {
     @Test
     void writesRequireTheSessionToken() throws Exception {
         mvc.perform(post("/api/rank/block/123").session(session)).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/rank/watch/123").session(session)).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/rank/unwatch/123").session(session)).andExpect(status().isUnauthorized());
 
         verifyNoInteractions(novelService);
+    }
+
+    /** 关注/取消关注与拉黑同构：带令牌的 POST 打到服务层的全行联动方法上。 */
+    @Test
+    void watchAndUnwatchToggleEveryRowOfTheBook() throws Exception {
+        MvcResult issued = mvc.perform(get("/api/rank/write-token").session(session)).andReturn();
+        String token = mapper.readTree(issued.getResponse().getContentAsString()).get("data").asText();
+
+        mvc.perform(post("/api/rank/watch/42").header(RankWriteInterceptor.HEADER, token).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("已关注"));
+        mvc.perform(post("/api/rank/unwatch/42").header(RankWriteInterceptor.HEADER, token).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("已取消关注"));
+
+        verify(novelService).setWatched("42", true);
+        verify(novelService).setWatched("42", false);
+    }
+
+    /** watchedOnly 是纯读筛选，必须原样透传到服务层——漏传会让「只看关注」变成整库。 */
+    @Test
+    void allBooksPassesWatchedOnlyToTheQuery() throws Exception {
+        when(novelService.findAllBooksFiltered(anyList(), any(), any(), anyBoolean(), anyBoolean(), any(),
+                anyInt(), anyInt(), any())).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 50), 0));
+        when(novelService.countAllNovels()).thenReturn(1L);
+
+        mvc.perform(get("/api/rank/allBooks").param("category", "M_WESTERN_FANTASY")
+                        .param("watchedOnly", "true").session(session))
+                .andExpect(status().isOk());
+
+        verify(novelService).findAllBooksFiltered(
+                eq(List.of("M_WESTERN_FANTASY")), any(), any(), eq(false), eq(true), eq("read"), eq(1), eq(50), isNull());
     }
 
     @Test
@@ -119,17 +159,20 @@ class RankControllerTest {
 
     @Test
     void readEndpointsNeedNoToken() throws Exception {
-        when(novelService.findAllBooksFiltered(anyList(), any(), any(), anyBoolean(), any())).thenReturn(List.of());
+        when(novelService.findAllBooksFiltered(anyList(), any(), any(), anyBoolean(), anyBoolean(), any(),
+                anyInt(), anyInt(), any())).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 50), 0));
         when(novelService.countAllNovels()).thenReturn(5L);
 
         mvc.perform(get("/api/rank/allBooks").param("category", "M_WESTERN_FANTASY").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(0))
                 .andExpect(jsonPath("$.rankType").value("read"))
-                .andExpect(jsonPath("$.dbEmpty").value(false));
+                .andExpect(jsonPath("$.dbEmpty").value(false))
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(50));
 
         verify(novelService).findAllBooksFiltered(
-                eq(List.of("M_WESTERN_FANTASY")), any(), any(), eq(false), eq("read"));
+                eq(List.of("M_WESTERN_FANTASY")), any(), any(), eq(false), eq(false), eq("read"), eq(1), eq(50), isNull());
     }
 
     /** fetchAll 的汇总字段在信封顶层（与 data 平级），前端 data.js 显式依赖这个位置读

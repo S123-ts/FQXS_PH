@@ -32,7 +32,7 @@ export function openConfigPanel(opener) {
     const firstCheckbox = buildConfigPanel();
     configOpener = opener instanceof Element ? opener : null;
     mask.hidden = false;
-    // 焦点直接落到表单区；目录为空时退到关闭按钮，别让焦点留在被遮住的页面里
+    // 焦点直接落到表单区；目录为空时退到关闭按钮，避免焦点留在被遮挡的页面中
     const focusTarget = /** @type {HTMLElement} */ (firstCheckbox || mask.querySelector('.modal-close'));
     if (focusTarget) focusTarget.focus();
 }

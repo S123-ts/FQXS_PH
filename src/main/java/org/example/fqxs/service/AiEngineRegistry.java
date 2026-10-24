@@ -31,8 +31,8 @@ public class AiEngineRegistry {
     private static final Pattern MODEL_PATTERN =
             Pattern.compile("^(?!.*\\.\\.)[A-Za-z0-9._/-]{1,80}$");
 
-    /** 引擎 id 只允许小写字母、数字与连字符，长度 3–40。 */
-    private static final Pattern ID_PATTERN = Pattern.compile("^[a-z0-9-]{3,40}$");
+    /** 引擎 id 只允许小写字母、数字与连字符，长度 3–40。密钥存储也复用它校验。 */
+    public static final Pattern ID_PATTERN = Pattern.compile("^[a-z0-9-]{3,40}$");
 
     private final AiEngineRepository repository;
     private final AiKeyStore keyStore;
@@ -60,16 +60,6 @@ public class AiEngineRegistry {
     /** 该引擎是否已配置 Key（转发密钥存储，调用方不必同时依赖两个服务）。 */
     public boolean hasKey(String id) {
         return keyStore.hasKey(id);
-    }
-
-    /** 引擎是否可用于自动判定：启用 + OpenAI 兼容 + 有 Key。 */
-    public boolean usable(String id) {
-        return find(id)
-                .filter(AiEngine::isEnabled)
-                .filter(record -> !record.isSuspended())
-                .filter(AiEngine::isOpenAiCompatible)
-                .map(record -> keyStore.hasKey(id))
-                .orElse(false);
     }
 
     /** 可用于批量判定的免费引擎：启用 + 未被自动停用 + OpenAI 兼容 + 已配 Key，按 priority。 */
@@ -143,7 +133,7 @@ public class AiEngineRegistry {
                     keyStore.masked(engine.getId()),
                     keyStore.sourceOf(engine.getId()),
                     engine.getModel(),
-                    modelsOf(engine.getId()),
+                    modelsOf(engine),
                     engine.isOpenAiCompatible(),
                     models,
                     modelOptions,
@@ -230,7 +220,11 @@ public class AiEngineRegistry {
         }
         String csv = String.join(",", merged);
         if (csv.length() > 2000) {
-            csv = csv.substring(0, csv.lastIndexOf(',', 2000));
+            // 找不到逗号时不能 substring(0, -1)：保留原串（型号限长 80，实际不会走到）
+            int cut = csv.lastIndexOf(',', 2000);
+            if (cut > 0) {
+                csv = csv.substring(0, cut);
+            }
         }
         record.setModelsCsv(csv);
         repository.save(record);
@@ -245,7 +239,11 @@ public class AiEngineRegistry {
      * @return 非空型号列表
      */
     public List<String> modelsOf(String engine) {
-        AiEngine record = require(engine);
+        return modelsOf(require(engine));
+    }
+
+    /** 已拿到记录时直接解析，避免 describeAll 这类批量场景逐条回库。 */
+    private static List<String> modelsOf(AiEngine record) {
         List<String> pool = splitModels(record.getModelPool());
         return pool.isEmpty() ? List.of(record.getModel()) : pool;
     }
@@ -262,7 +260,7 @@ public class AiEngineRegistry {
     }
 
     /**
-     * 新增或更新一个引擎；内置引擎的 id、名称、内置标记与**端点**都不可改（端点锁定的理由见内联注释）。
+     * 新增或更新一个引擎；内置引擎的 id、名称、内置标记与<b>端点</b>都不可改（端点锁定理由见内联注释）。
      *
      * @param incoming 引擎记录（id 为空时自动生成）
      * @return 保存后的记录
@@ -281,9 +279,7 @@ public class AiEngineRegistry {
                 throw new IllegalArgumentException("引擎名称不能为空");
             }
             incoming.setId(id);
-            incoming.setBuiltin(false);
-            incoming.setProtocol("openai_chat");
-            incoming.setBaseUrl(normalizeBaseUrl(incoming.getBaseUrl()));
+            prepareCustom(incoming);
             requireModel(incoming.getModel());
             if (incoming.getModelsCsv() == null) {
                 incoming.setModelsCsv(incoming.getModel());
@@ -293,7 +289,7 @@ public class AiEngineRegistry {
         }
 
         if (existing.isBuiltin()) {
-            // 内置引擎允许改型号/启停/优先级/备注，但**端点锁死**（安全测试报告 M6）：
+            // 内置引擎允许改型号/启停/优先级/备注，但端点锁定：
             // 端点可改就等于「任何能调这个接口的人都能让服务器把真实 Key 当 Bearer 发到自己的地址」，
             // 这是 H1 攻击链的第三步，登录门只挡住了"匿名的人"，挡不住"已经进来的人"。
             // 要换网关请「新增自定义引擎」——那条路有独立的 key.<id>，不必动内置端点。
@@ -317,9 +313,7 @@ public class AiEngineRegistry {
             return repository.save(existing);
         }
 
-        incoming.setBuiltin(false);
-        incoming.setProtocol("openai_chat");
-        incoming.setBaseUrl(normalizeBaseUrl(incoming.getBaseUrl()));
+        prepareCustom(incoming);
         if (incoming.getName() == null || incoming.getName().isBlank()) {
             incoming.setName(existing.getName());
         }
@@ -337,6 +331,8 @@ public class AiEngineRegistry {
         if (record.isBuiltin()) {
             throw new IllegalArgumentException("内置引擎不能删除，可以停用");
         }
+        // 先清密钥再删记录：否则 key.<id> 会永久留在磁盘上，将来新增同名引擎还会静默继承旧 Key
+        keyStore.save(id, "");
         repository.delete(record);
         log.info("已删除 AI 引擎: id={}", id);
     }
@@ -388,6 +384,13 @@ public class AiEngineRegistry {
         if (model == null || !MODEL_PATTERN.matcher(model.trim()).matches()) {
             throw new IllegalArgumentException("模型名不合法（只允许字母、数字与 . _ / -，最长 80 字符）");
         }
+    }
+
+    /** 自定义引擎的新增与更新共用：协议固定为 OpenAI 兼容，端点必须走归一化校验。 */
+    private static void prepareCustom(AiEngine incoming) {
+        incoming.setBuiltin(false);
+        incoming.setProtocol("openai_chat");
+        incoming.setBaseUrl(normalizeBaseUrl(incoming.getBaseUrl()));
     }
 
     /** 按钮短名：内置按前缀归类，自定义取名称前 2 个字符。 */

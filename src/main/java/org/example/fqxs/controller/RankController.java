@@ -2,6 +2,7 @@ package org.example.fqxs.controller;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +14,7 @@ import org.example.fqxs.model.CategoryCrawlResult;
 import org.example.fqxs.model.ConfigUpdateRequest;
 import org.example.fqxs.model.NovelInfo;
 import org.example.fqxs.model.RankListResult;
+import org.example.fqxs.service.BookMetaEnricher;
 import org.example.fqxs.service.ConfigService;
 import org.example.fqxs.service.NovelService;
 import org.example.fqxs.service.RankService;
@@ -20,6 +22,7 @@ import org.example.fqxs.web.ApiResponse;
 import org.example.fqxs.web.ApiResult;
 import org.example.fqxs.web.RankWriteInterceptor;
 import org.example.fqxs.web.dto.MetaView;
+import org.springframework.data.domain.Page;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
@@ -42,6 +45,7 @@ public class RankController {
     private final FanqieConfig fanqieConfig;
     private final NovelService novelService;
     private final ConfigService configService;
+    private final BookMetaEnricher bookMetaEnricher;
     private final ObjectMapper objectMapper;
 
     /** 页面唯一引导接口：榜单类型、当前生效配置与全目录（含 displayed 标记）一次拿全。 */
@@ -181,13 +185,20 @@ public class RankController {
         return ApiResponse.list(categoryView());
     }
 
-    /** “全部”视图：category 传逗号分隔的分类 code，空参数=当前榜单全部分区（排查用）。 */
+    /**
+     * “全部”视图（服务端分页）：category 传逗号分隔的分类 code，空参数=当前榜单全部分区（排查用）。
+     * 返回 data + total；page/size 回显实际生效值。
+     */
     @GetMapping("/allBooks")
     public Map<String, Object> getAllBooksFromDb(
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String wordRange,
             @RequestParam(required = false) String status,
-            @RequestParam(defaultValue = "false") boolean blockedOnly) {
+            @RequestParam(defaultValue = "false") boolean blockedOnly,
+            @RequestParam(defaultValue = "false") boolean watchedOnly,
+            @RequestParam(required = false) String authorGender,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "50") int size) {
 
         String rankType = configService.getActiveRankType();
         List<String> codes = splitCategories(category);
@@ -196,12 +207,28 @@ public class RankController {
                 throw new IllegalArgumentException("参数 category 取值不合法");
             }
         }
-        List<Novel> novels = novelService.findAllBooksFiltered(codes, wordRange, status, blockedOnly, rankType);
-        Map<String, Object> body = ApiResult.list(novels);
+        Page<Novel> result = novelService.findAllBooksFiltered(
+                codes, wordRange, status, blockedOnly, watchedOnly, rankType, page, size, authorGender);
+        Map<String, Object> body = ApiResult.page(result.getContent(), result.getTotalElements());
         body.put("rankType", rankType);
         // 区分“库整体为空”（前端要降级到第一个分类）与“当前榜单分区为空”（正常状态，摆空态）
         body.put("dbEmpty", novelService.countAllNovels() == 0);
+        body.put("page", result.getNumber() + 1);
+        body.put("size", result.getSize());
         return body;
+    }
+
+    /**
+     * 补作者性别与评分：一次最多 5 本（服务端上限 10），严格串行、每本间隔 2 秒。
+     * 只补当前榜单热度前 50；性别只取一次，评分 10 天刷新。
+     */
+    @Operation(summary = "补作者性别与评分（小批量）")
+    @PostMapping("/enrich")
+    public ApiResponse<BookMetaEnricher.Result> enrichBookMeta(
+            @RequestParam(defaultValue = "5") int limit) {
+        BookMetaEnricher.Result result = bookMetaEnricher.enrich(limit, configService.getActiveRankType());
+        return ApiResponse.data("已更新 " + result.updated() + " 本，前 50 还剩 "
+                + result.remaining() + " 本待补", result);
     }
 
     @PostMapping("/block/{bookId}")
@@ -215,6 +242,19 @@ public class RankController {
     public Map<String, Object> unblockBook(@PathVariable String bookId) {
         novelService.setBlocked(bookId, false);
         return ApiResult.ok("已恢复");
+    }
+
+    /** 关注：行内标记，不影响正常列表的可见性，只服务于「只看关注」。 */
+    @PostMapping("/watch/{bookId}")
+    public Map<String, Object> watchBook(@PathVariable String bookId) {
+        novelService.setWatched(bookId, true);
+        return ApiResult.ok("已关注");
+    }
+
+    @PostMapping("/unwatch/{bookId}")
+    public Map<String, Object> unwatchBook(@PathVariable String bookId) {
+        novelService.setWatched(bookId, false);
+        return ApiResult.ok("已取消关注");
     }
 
     private MetaView buildMetaView() {

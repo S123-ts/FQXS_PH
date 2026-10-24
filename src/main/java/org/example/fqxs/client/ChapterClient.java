@@ -12,6 +12,7 @@ import okhttp3.ResponseBody;
 import org.example.fqxs.config.AiDetectConfig;
 import org.example.fqxs.config.FanqieConfig;
 import org.example.fqxs.exception.CrawlException;
+import org.example.fqxs.model.ChapterRef;
 import org.example.fqxs.model.ChapterSample;
 import org.example.fqxs.util.PuaDecoder;
 import org.springframework.stereotype.Component;
@@ -28,8 +29,8 @@ import java.util.regex.Pattern;
 /**
  * 章节正文采集：目录走 JSON 接口，正文走服务端渲染的阅读页。
  *
- * <p>正文的 JSON 接口（{@code /api/reader/full}）实测返回 200 但 body 为空——这是上游风控的表现，
- * 不能当“空章节”处理。阅读页 {@code /reader/{itemId}} 把正文放在
+ * <p>正文的 JSON 接口（{@code /api/reader/full}）返回 200 但 body 为空，属上游风控表现，
+ * 不能当作“空章节”处理。阅读页 {@code /reader/{itemId}} 把正文放在
  * {@code window.__INITIAL_STATE__.reader.chapterData} 里，只需浏览器 UA 与同页 Referer。</p>
  */
 @Slf4j
@@ -44,8 +45,10 @@ public class ChapterClient {
 
     private static final String DIRECTORY_API = "/api/reader/directory/detail";
 
-    /** 目录缓存上限：同一本书反复初筛/逐章校验时省掉重复的目录请求。 */
-    private static final int DIRECTORY_CACHE_LIMIT = 200;
+    /** 目录缓存上限：同一本书反复初筛/逐章校验时省掉重复的目录请求。
+     * 存的是结构化目录，约 0.3MB/本（1900 章）；50 本 ≈ 15MB，覆盖一次批量与逐章的工作集，
+     * 又不会让长跑进程无界占堆（正文缓存另有 chapter-cache-size 控制）。 */
+    private static final int DIRECTORY_CACHE_LIMIT = 50;
 
     /** 对 429 与 5xx 的重试次数上限（不含首次）。 */
     private static final int MAX_RETRIES = 1;
@@ -59,8 +62,8 @@ public class ChapterClient {
     private final AiDetectConfig aiDetectConfig;
     private final PuaDecoder puaDecoder;
 
-    /** bookId → 有序章节 ID；章节顺序就是阅读顺序，抽章必须按它取。 */
-    private final Map<String, List<String>> directoryCache = lruCache(DIRECTORY_CACHE_LIMIT);
+    /** bookId → 结构化目录（itemId + 标题 + 卷名 + 锁定标记）；章节顺序即阅读顺序。 */
+    private final Map<String, List<ChapterRef>> directoryCache = lruCache(DIRECTORY_CACHE_LIMIT);
 
     /** itemId → 章节样本；正文抓取走 SSR 阅读页较慢，缓存让交叉判定不再重复打上游。 */
     private final Map<String, ChapterSample> chapterCache;
@@ -71,7 +74,7 @@ public class ChapterClient {
      * @param limit 最大条目数
      * @return 线程安全的 LRU Map
      */
-    static <K, V> Map<K, V> lruCache(int limit) {
+    public static <K, V> Map<K, V> lruCache(int limit) {
         return Collections.synchronizedMap(new LinkedHashMap<>(64, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
@@ -98,29 +101,41 @@ public class ChapterClient {
      * @throws CrawlException 上游不可用或返回空目录（风控）
      */
     public List<String> listChapterIds(String bookId) {
+        return listChapters(bookId).stream().map(ChapterRef::itemId).toList();
+    }
+
+    /**
+     * 取整本书的结构化目录：章节标题、卷名与锁定标记一次拿全。
+     *
+     * <p>为什么不用 {@code allItemIds}：它只有 ID。上游同一次响应里的
+     * {@code chapterListWithVolume} 已经按卷分组带出了标题——书源阅读端要靠它显示章节目录，
+     * AI 取样继续用 {@link #listChapterIds} 从同一份缓存里取 ID，两边不会各抓一次。</p>
+     *
+     * @param bookId 书籍 ID
+     * @return 有序章节列表
+     * @throws CrawlException 上游不可用或返回空目录（风控）
+     */
+    public List<ChapterRef> listChapters(String bookId) {
         if (bookId == null || bookId.isBlank()) {
             throw new IllegalArgumentException("bookId 不能为空");
         }
-        List<String> cachedIds = directoryCache.get(bookId);
-        if (cachedIds != null) {
-            return cachedIds;
+        List<ChapterRef> cached = directoryCache.get(bookId);
+        if (cached != null) {
+            return cached;
         }
         String url = HttpUrl.get(fanqieConfig.getBaseUrl() + DIRECTORY_API).newBuilder()
                 .addQueryParameter("bookId", bookId)
                 .build()
                 .toString();
         JsonNode root = executeJson(url, fanqieConfig.getBaseUrl() + "/page/" + bookId, "章节目录");
-        JsonNode itemIdsNode = root.path("data").path("allItemIds");
+        JsonNode data = root.path("data");
 
-        List<String> itemIds = new ArrayList<>();
-        if (itemIdsNode.isArray()) {
-            itemIdsNode.forEach(node -> {
-                if (node.isTextual() && !node.asText().isBlank()) {
-                    itemIds.add(node.asText());
-                }
-            });
+        List<ChapterRef> chapters = parseChapters(data.path("chapterListWithVolume"));
+        if (chapters.isEmpty()) {
+            // 老响应没有分组结构时退回扁平 ID 列表：标题留空，阅读端至少还能翻章
+            chapters = parseFlatItemIds(data.path("allItemIds"));
         }
-        final List<String> result = List.copyOf(itemIds);
+        final List<ChapterRef> result = List.copyOf(chapters);
         if (result.isEmpty()) {
             // 上游风控与“这本书真没有章节”都会给空数组，一律按失败处理，避免把书判成没有正文
             throw new CrawlException("章节目录为空（bookId=" + bookId + "），可能被上游风控");
@@ -129,6 +144,74 @@ public class ChapterClient {
         directoryCache.put(bookId, result);
         log.info("章节目录获取成功: bookId={}, 章节数={}", bookId, result.size());
         return result;
+    }
+
+    /** 目录是否已在内存缓存里；书源据此决定要不要占上游节流槽（缓存命中不回源）。 */
+    public boolean hasCachedDirectory(String bookId) {
+        return bookId != null && !bookId.isBlank() && directoryCache.containsKey(bookId);
+    }
+
+    /** 正文是否已在内存缓存里；理由同 {@link #hasCachedDirectory(String)}。 */
+    public boolean hasCachedChapter(String itemId) {
+        return itemId != null && !itemId.isBlank() && chapterCache.containsKey(itemId);
+    }
+
+    /**
+     * 解析按卷分组的目录：{@code chapterListWithVolume} 是「数组的数组」，
+     * 每章带 {@code itemId / title / volume_name / isChapterLock / needPay}。
+     *
+     * <p>同一卷的卷名只保留一个字符串实例：目录缓存按 200 本持有，一本 1900 章逐章各存一份
+     * 卷名会白占几十 MB。章级字段与卷级不一致时（上游结构异常）才各自成串。</p>
+     *
+     * @param grouped 分组节点
+     * @return 有序章节；结构缺失时返回空列表，由调用方回退
+     */
+    static List<ChapterRef> parseChapters(JsonNode grouped) {
+        if (grouped == null || !grouped.isArray()) {
+            return List.of();
+        }
+        List<ChapterRef> chapters = new ArrayList<>();
+        for (JsonNode volume : grouped) {
+            if (!volume.isArray()) {
+                continue;
+            }
+            String volumeName = volume.size() == 0 ? "" : volume.get(0).path("volume_name").asText("");
+            for (JsonNode chapter : volume) {
+                String itemId = chapter.path("itemId").asText("");
+                if (itemId.isBlank()) {
+                    continue;
+                }
+                boolean locked = chapter.path("isChapterLock").asBoolean(false)
+                        || chapter.path("needPay").asBoolean(false)
+                        || chapter.path("needPay").asInt(0) > 0;
+                String chapterVolume = chapter.path("volume_name").asText("");
+                // 正常情况章级卷名与卷级相同：返回卷级那个实例，实现共享
+                String effectiveVolume = chapterVolume.isEmpty() || chapterVolume.equals(volumeName)
+                        ? volumeName : chapterVolume;
+                chapters.add(new ChapterRef(itemId, chapter.path("title").asText(""),
+                        effectiveVolume, locked));
+            }
+        }
+        return chapters;
+    }
+
+    /**
+     * 回退解析：扁平 {@code allItemIds}，没有标题与卷名。
+     *
+     * @param itemIds 节点
+     * @return 有序章节
+     */
+    static List<ChapterRef> parseFlatItemIds(JsonNode itemIds) {
+        if (itemIds == null || !itemIds.isArray()) {
+            return List.of();
+        }
+        List<ChapterRef> chapters = new ArrayList<>();
+        itemIds.forEach(node -> {
+            if (node.isTextual() && !node.asText().isBlank()) {
+                chapters.add(new ChapterRef(node.asText(), "", "", false));
+            }
+        });
+        return chapters;
     }
 
     /**
@@ -196,8 +279,8 @@ public class ChapterClient {
     /**
      * 把上游的 HTML 正文转成纯文本：段落标签转换行，其余标签剥掉，实体反转义。
      *
-     * <p>包级静态：第三方正文通道的还原口径必须与这里<b>完全一致</b>，否则两路文本没法比，
-     * 所以直接共用这一份实现而不是复制。</p>
+     * <p>包级静态：第三方正文通道的还原口径必须与这里<b>完全一致</b>，否则两路文本无法比对，
+     * 因此共用同一实现而不是复制。</p>
      *
      * @param htmlContent 上游 content 字段
      * @return 纯文本

@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -32,7 +33,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * 逐章校验契约（2026-10-22 语义）：
+ * 逐章校验契约：
  * 未命中推进一章；命中后继续把剩余章节查完；同一模型同一章节不重复校验；
  * 型号池里当前型号查完自动换下一个；试读章跳过判定但仍推进进度。
  */
@@ -67,6 +68,9 @@ class AiVerifyServiceTest {
     private AiEngineRegistry engineRegistry;
 
     @Mock
+    private AiEngineRouter engineRouter;
+
+    @Mock
     private NovelRepository novelRepository;
 
     @Mock
@@ -83,7 +87,7 @@ class AiVerifyServiceTest {
     void setUp() {
         config = new AiDetectConfig();
         service = new AiVerifyService(aiDetectClient, thirdPartyChapterClient, chapterContentService, sampleCollector,
-                config, engineRegistry, novelRepository, verdictRepository, verdictWriter);
+                config, engineRegistry, engineRouter, novelRepository, verdictRepository, verdictWriter);
         AiEngine engine = AiEngine.builder()
                 .id(ENGINE).name("智谱 GLM").baseUrl("https://example.test/v1/chat/completions")
                 .model(MODEL_A).protocol("openai_chat").builtin(true).enabled(true).autoBan(true).priority(0)
@@ -91,8 +95,7 @@ class AiVerifyServiceTest {
         Novel novelRow = new Novel();
         novelRow.setBookId("b1");
 
-        lenient().when(engineRegistry.find(anyString())).thenReturn(Optional.of(engine));
-        lenient().when(engineRegistry.hasKey(anyString())).thenReturn(true);
+        lenient().when(engineRouter.resolveAvoiding(anyString(), anyList())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(engineRegistry.modelsOf(anyString())).thenReturn(List.of(MODEL_A));
         lenient().when(novelRepository.findAllByBookId("b1")).thenReturn(List.of(novelRow));
         lenient().when(sampleCollector.plan(eq("b1"), any()))
@@ -117,7 +120,7 @@ class AiVerifyServiceTest {
         assertThat(result.chapterIndex()).isEqualTo(1);
         assertThat(result.stepIndex()).isEqualTo(1);
         assertThat(result.totalChapters()).isEqualTo(10);
-        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 0, 12.0, "不像 AI", 1, 1, null, false);
+        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 0, 12.0, "不像 AI", 1, 1, null, false, "official:head");
     }
 
     @Test
@@ -132,7 +135,7 @@ class AiVerifyServiceTest {
         assertThat(result.aiHit()).isTrue();
         // 命中不再是终态：只查了 1/10，仍可继续
         assertThat(result.finished()).isFalse();
-        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 2, 88.0, "明显 AI", 1, 1, null, true);
+        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 2, 88.0, "明显 AI", 1, 1, null, true, "official:head");
     }
 
     @Test
@@ -150,7 +153,7 @@ class AiVerifyServiceTest {
         assertThat(result.chapterIndex()).isEqualTo(2);
         // 已判过 AI 的结论不能被后续"干净章"抹掉，分数保留首次命中的 88
         assertThat(result.aiScore()).isEqualTo(88.0);
-        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 2, 88.0, "首次命中", 2, 2, null, false);
+        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 2, 88.0, "首次命中", 2, 2, null, false, "official:head");
     }
 
     @Test
@@ -169,7 +172,7 @@ class AiVerifyServiceTest {
         assertThat(result.finished()).isTrue();
         // 单个型号查完 ≠ 整批结束：型号池里可能还有别的型号没查，allDone 只能由"无可推进型号"给出
         assertThat(result.allDone()).isFalse();
-        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 1, 9.0, "像人写", 10, 10, null, false);
+        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 1, 9.0, "像人写", 10, 10, null, false, "official:head");
     }
 
     @Test
@@ -188,9 +191,9 @@ class AiVerifyServiceTest {
 
         assertThat(result.model()).isEqualTo(MODEL_B);
         assertThat(result.chapterIndex()).isEqualTo(1);
-        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_B, 0, 20.0, "B 看像人写", 1, 1, null, false);
+        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_B, 0, 20.0, "B 看像人写", 1, 1, null, false, "official:head");
         verify(verdictWriter, never()).writeVerify(eq("b1"), eq(ENGINE), eq(VERIFY_A),
-                anyInt(), anyDouble(), any(), anyInt(), anyInt(), any(), any(Boolean.class));
+                anyInt(), anyDouble(), any(), anyInt(), anyInt(), any(), any(Boolean.class), any());
     }
 
     @Test
@@ -214,6 +217,24 @@ class AiVerifyServiceTest {
     }
 
     @Test
+    void restartsCursorWhenSampleStrategyChanges() {
+        // 旧进度属于 recent 档（已查 5 章）；本次按默认 head 查时不能沿用，
+        // 否则会从第 6 章开始，前 5 章被静默跳过
+        NovelAiVerdict recentRow = row(1, 10.0, "旧策略进度", 5);
+        recentRow.setSampleMode("third:recent");
+        when(verdictRepository.findByBookIdAndEngineAndModel("b1", ENGINE, VERIFY_A))
+                .thenReturn(Optional.of(recentRow));
+        when(aiDetectClient.detectFree(eq(ENGINE), eq(MODEL_A), anyString()))
+                .thenReturn(new AiVerdict(15, ENGINE, "像人写", null));
+
+        AiDetectService.VerifyStepResult result = service.stepVerify("b1", ENGINE, null);
+
+        assertThat(result.chapterIndex()).isEqualTo(1);
+        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 0, 15.0, "像人写", 1, 1, null, false,
+                "official:head");
+    }
+
+    @Test
     void skipsPreviewChapterButStillAdvances() {
         when(verdictRepository.findByBookIdAndEngineAndModel("b1", ENGINE, VERIFY_A))
                 .thenReturn(Optional.empty());
@@ -227,7 +248,7 @@ class AiVerifyServiceTest {
         assertThat(result.stepIndex()).isEqualTo(1);
         assertThat(result.finished()).isFalse();
         // 跳过判定，但进度要推进，否则同一章会被反复请求
-        verify(verdictWriter).writeProgress("b1", ENGINE, VERIFY_A, 0, 0.0, "", 1, 1, null);
+        verify(verdictWriter).writeProgress("b1", ENGINE, VERIFY_A, 0, 0.0, "", 1, 1, null, "official:head");
         verifyNoInteractions(aiDetectClient);
     }
 
@@ -239,6 +260,8 @@ class AiVerifyServiceTest {
         row.setAiScore(score);
         row.setReason(reason);
         row.setChaptersChecked(checked);
+        // 游标只在取样策略一致时生效；夹具统一按默认档
+        row.setSampleMode("official:head");
         return row;
     }
 }

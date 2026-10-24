@@ -10,6 +10,11 @@ import org.example.fqxs.service.NovelService;
 import org.example.fqxs.util.DateUtil;
 import org.example.fqxs.util.NovelTextParser;
 import org.example.fqxs.util.PuaDecoder;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Sort.Order;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,7 +23,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -26,8 +30,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class NovelServiceImpl implements NovelService {
 
-    /** “全部”视图默认过滤掉拉黑书籍，重新爬取不会恢复拉黑状态。 */
-    private static final Set<String> WORD_RANGES = Set.of("100w以内", "100w以上", "200w以上");
+    /** 单页上限：前端最大只给 100，留一倍余量防止手改参数把整库拉回来。 */
+    private static final int MAX_PAGE_SIZE = 200;
 
     private final NovelRepository novelRepository;
     private final PuaDecoder puaDecoder;
@@ -111,52 +115,53 @@ public class NovelServiceImpl implements NovelService {
         return novelRepository.count();
     }
 
-    /** 查询失败一律外抛给 GlobalExceptionHandler：吞成空列表会让页面把“库挂了”读成“这里没书”。 */
+    /**
+     * “全部”视图服务端分页：筛选与排序全部下推，Java 侧只做参数归一。
+     * 查询失败一律外抛给 GlobalExceptionHandler：吞成空页会让页面把“库挂了”读成“这里没书”。
+     */
     @Override
-    public List<Novel> findAllBooksFiltered(List<String> categoryCodes, String wordRange, String status,
-                                            boolean blockedOnly, String rankType) {
-        List<Novel> novels = (categoryCodes == null || categoryCodes.isEmpty())
-                ? novelRepository.findByRankType(rankType)
-                : novelRepository.findByCategoryCodeInAndRankType(categoryCodes, rankType);
-
-        List<Novel> result = new ArrayList<>(novels);
-        if (wordRange != null && WORD_RANGES.contains(wordRange)) {
-            result = result.stream()
-                    .filter(novel -> matchesWordRange(novel.getWordCount(), wordRange))
-                    .collect(Collectors.toList());
+    public Page<Novel> findAllBooksFiltered(List<String> categoryCodes, String wordRange, String status,
+                                            boolean blockedOnly, boolean watchedOnly, String rankType,
+                                            int page, int size, String authorGender) {
+        int safePage = Math.max(1, page);
+        int safeSize = Math.max(1, Math.min(size, MAX_PAGE_SIZE));
+        Pageable pageable = PageRequest.of(safePage - 1, safeSize, sortFor(blockedOnly, watchedOnly));
+        // status 空串 = 不筛；字数档位转成开/闭区间，null 表示该侧不限
+        String statusFilter = status == null ? "" : status;
+        String authorFilter = authorGender == null ? "" : authorGender;
+        Double minWan = null;
+        Double maxWan = null;
+        if ("100w以上".equals(wordRange)) {
+            minWan = 100.0;
+        } else if ("200w以上".equals(wordRange)) {
+            minWan = 200.0;
+        } else if ("100w以内".equals(wordRange)) {
+            maxWan = 100.0;
         }
-        if (status != null && !status.isEmpty()) {
-            result = result.stream()
-                    .filter(novel -> status.equals(novel.getStatus()))
-                    .collect(Collectors.toList());
+        if (categoryCodes == null || categoryCodes.isEmpty()) {
+            return novelRepository.pageAllBooks(rankType, blockedOnly, watchedOnly,
+                    statusFilter, minWan, maxWan, authorFilter, pageable);
         }
-        result = result.stream()
-                .filter(novel -> Boolean.TRUE.equals(novel.getIsBlocked()) == blockedOnly)
-                .collect(Collectors.toList());
+        return novelRepository.pageAllBooksByCodes(categoryCodes, rankType, blockedOnly, watchedOnly,
+                statusFilter, minWan, maxWan, authorFilter, pageable);
+    }
 
+    /** 默认按热度；“已拉黑 / 只看关注”按对应时刻倒序，没有时刻的历史行排最后。 */
+    private static Sort sortFor(boolean blockedOnly, boolean watchedOnly) {
+        if (watchedOnly) {
+            return Sort.by(Order.desc("watchedTime").nullsLast(), Order.desc("readCountRaw"));
+        }
         if (blockedOnly) {
-            // 后拉的黑排最前；这个字段之前拉黑的行没有时刻，退到末尾按热度排
-            result.sort((a, b) -> {
-                int byTime = compareBlockedTimeDesc(a.getBlockedTime(), b.getBlockedTime());
-                return byTime != 0 ? byTime : Long.compare(raw(b.getReadCountRaw()), raw(a.getReadCountRaw()));
-            });
-        } else {
-            result.sort((a, b) -> Long.compare(raw(b.getReadCountRaw()), raw(a.getReadCountRaw())));
+            return Sort.by(Order.desc("blockedTime").nullsLast(), Order.desc("readCountRaw"));
         }
-        return result;
+        return Sort.by(Order.desc("readCountRaw"));
     }
 
     @Override
     @Transactional
     public void setBlocked(String bookId, boolean blocked) {
-        if (bookId == null || bookId.isBlank()) {
-            throw new IllegalArgumentException("bookId 不能为空");
-        }
         // 唯一键是 (categoryCode, bookId)，同一本书在每个分类榜各有一行，必须一起开关
-        List<Novel> rows = novelRepository.findAllByBookId(bookId);
-        if (rows.isEmpty()) {
-            throw new IllegalArgumentException("未找到 bookId: " + bookId);
-        }
+        List<Novel> rows = requireRows(bookId);
         for (Novel novel : rows) {
             novel.setIsBlocked(blocked);
             novel.setBlockedTime(blocked ? DateUtil.now() : null);
@@ -167,19 +172,31 @@ public class NovelServiceImpl implements NovelService {
     }
 
     /**
+     * 关注按 bookId 全行联动：同一本书在多个分类榜各有一行，
+     * 只在当前分类行上打标记会让切分类后的状态自相矛盾。
+     */
+    @Override
+    @Transactional
+    public void setWatched(String bookId, boolean watched) {
+        List<Novel> rows = requireRows(bookId);
+        LocalDateTime watchedTime = watched ? DateUtil.now() : null;
+        for (Novel novel : rows) {
+            novel.setIsWatched(watched);
+            novel.setWatchedTime(watchedTime);
+        }
+        novelRepository.saveAll(rows);
+        log.info("已{}关注: {} (bookId={}, 涉及 {} 个分类行)",
+                watched ? "添加" : "取消", rows.get(0).getTitle(), bookId, rows.size());
+    }
+
+    /**
      * 免费引擎结论按 bookId 全行联动：同一本书在多个分类榜各有一行，
      * 结论必须一致，否则「全部」视图里同一本书会出现两种标记。
      */
     @Override
     @Transactional
     public void applyFreeVerdict(String bookId, int aiFlag, double aiScore, String engine) {
-        if (bookId == null || bookId.isBlank()) {
-            throw new IllegalArgumentException("bookId 不能为空");
-        }
-        List<Novel> rows = novelRepository.findAllByBookId(bookId);
-        if (rows.isEmpty()) {
-            throw new IllegalArgumentException("未找到 bookId: " + bookId);
-        }
+        List<Novel> rows = requireRows(bookId);
         // 1. 逐行写入同一份结论与时刻，保证跨分类展示一致
         LocalDateTime checkedTime = DateUtil.now();
         for (Novel novel : rows) {
@@ -200,13 +217,7 @@ public class NovelServiceImpl implements NovelService {
     @Transactional
     public void applyManualVerifyVerdict(String bookId, String engine, int manualFlag, int checkedChapters,
                                          double manualScore, boolean aiHit) {
-        if (bookId == null || bookId.isBlank()) {
-            throw new IllegalArgumentException("bookId 不能为空");
-        }
-        List<Novel> rows = novelRepository.findAllByBookId(bookId);
-        if (rows.isEmpty()) {
-            throw new IllegalArgumentException("未找到 bookId: " + bookId);
-        }
+        List<Novel> rows = requireRows(bookId);
         // 1. 手动校验进度与结论逐行写入（进度用于前端显示 n/总数）。
         //    这些列原本叫 zq_*，现在承载"最近一次手动校验"的进度，各引擎共用。
         LocalDateTime checkedTime = DateUtil.now();
@@ -246,8 +257,8 @@ public class NovelServiceImpl implements NovelService {
      * 分类身份取自入参目录而不是 NovelInfo：抓取端不设置时也不会写入 null 分类。
      *
      * <p>书名、作者、简介在上游同样被替换成私用区（PUA）字符——前端靠番茄的 woff2 字体
-     * 把 U+E3E8–U+E555 画成汉字，所以页面「看着正常」，而库里的字节与接口返回都是残缺的。
-     * 入库是唯一的文本写入口，在这里还原一次，之后搜索、导出、AI 提示词拿到的才是汉字。
+     * 把 U+E3E8–U+E555 画成汉字，因此页面显示正常，而库里的字节与接口返回都是残缺的。
+     * 入库是唯一的文本写入口，在此还原一次，之后搜索、导出、AI 提示词才能拿到汉字。
      * 未混淆文本原样通过，重复调用结果一致。</p>
      */
     private void apply(Novel novel, NovelInfo info, CategoryCatalog category, String rankType) {
@@ -265,37 +276,27 @@ public class NovelServiceImpl implements NovelService {
         novel.setCategoryCode(category.getCode());
         novel.setGender(category.getGender());
         novel.setWordCount(info.getWordCount());
+        novel.setWordCountWan(wordCountWanOf(info.getWordCount()));
         novel.setRankType(rankType);
     }
 
-    private boolean matchesWordRange(String wordCount, String wordRange) {
-        if (wordCount == null || wordCount.isEmpty()) {
-            return false;
+    /** 原始字数 → “万”数值；没有字数时留 null（不参与任何字数区间）。 */
+    private static Double wordCountWanOf(String wordCount) {
+        if (wordCount == null || wordCount.isBlank()) {
+            return null;
         }
-        double wan = NovelTextParser.parseWordCountToWan(wordCount);
-        return switch (wordRange) {
-            case "100w以内" -> wan <= 100;
-            case "100w以上" -> wan > 100;
-            case "200w以上" -> wan > 200;
-            default -> true;
-        };
+        return NovelTextParser.parseWordCountToWan(wordCount);
     }
 
-    /** 新→旧；没有拉黑时刻的历史行排在所有有时刻的行之后。 */
-    private int compareBlockedTimeDesc(LocalDateTime a, LocalDateTime b) {
-        if (a == null && b == null) {
-            return 0;
+    /** 取一本书的全部分类行：拉黑/关注/结论写回都以整本书为单位。 */
+    private List<Novel> requireRows(String bookId) {
+        if (bookId == null || bookId.isBlank()) {
+            throw new IllegalArgumentException("bookId 不能为空");
         }
-        if (a == null) {
-            return 1;
+        List<Novel> rows = novelRepository.findAllByBookId(bookId);
+        if (rows.isEmpty()) {
+            throw new IllegalArgumentException("未找到 bookId: " + bookId);
         }
-        if (b == null) {
-            return -1;
-        }
-        return b.compareTo(a);
-    }
-
-    private long raw(Long value) {
-        return value == null ? 0L : value;
+        return rows;
     }
 }

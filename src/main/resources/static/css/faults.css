@@ -5,12 +5,15 @@
    颜色只用 theme.css 已有的变量与继承，缺变量时宁可退化也不写死色值。
    ============================================================ */
 
+/* 页头与正文同一宽度并居中：否则宽屏下右侧按钮贴视口、表格停在左侧 */
 .fault-head {
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 14px 16px;
     flex-wrap: wrap;
+    max-width: 1320px;
+    margin: 0 auto;
 }
 
 .fault-title {
@@ -18,9 +21,18 @@
     font-size: 18px;
 }
 
+/* 与审查记录页一致：出口贴右，而不是紧跟标题 */
+.fault-head-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .fault-main {
     padding: 0 16px 32px;
-    max-width: 1200px;
+    max-width: 1320px;
+    margin: 0 auto;
 }
 
 .fault-toolbar {
@@ -97,6 +109,42 @@
     width: 30%;
 }
 
+/* 时间必须整行显示：窄列下它会按「2026-10-/22/19:09:59」逐段换行 */
+.fault-time {
+    white-space: nowrap;
+    opacity: 0.78;
+    font-variant-numeric: tabular-nums;
+}
+
+/* 901–999px 是最挤的桌面档：时间列只有约 130px，nowrap 会越界压到引擎列。
+   这一段允许在日期与时间之间换一行；1000px 起列宽够，恢复 nowrap */
+@media (min-width: 901px) and (max-width: 999px) {
+    .fault-time {
+        white-space: normal;
+    }
+}
+
+/* 桌面列宽：原因 21% + 片段 18%，剩余六列按内容分。
+   不给比例时会按内容均分，时间与型号各剩约 7%，被迫竖排。 */
+@media (min-width: 901px) {
+    .fault-table th:nth-child(1),
+    .fault-table td:nth-child(1) { width: 14%; }
+    .fault-table th:nth-child(2),
+    .fault-table td:nth-child(2) { width: 10%; }
+    .fault-table th:nth-child(3),
+    .fault-table td:nth-child(3) { width: 11%; }
+    .fault-table th:nth-child(4),
+    .fault-table td:nth-child(4) { width: 9%; }
+    .fault-table th:nth-child(5),
+    .fault-table td:nth-child(5) { width: 5%; }
+    .fault-table th:nth-child(6),
+    .fault-table td:nth-child(6) { width: 21%; }
+    .fault-table th:nth-child(7),
+    .fault-table td:nth-child(7) { width: 18%; }
+    .fault-table th:nth-child(8),
+    .fault-table td:nth-child(8) { width: 12%; }
+}
+
 .fault-excerpt {
     opacity: .84;
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -120,5 +168,148 @@
     .fault-table th:nth-child(8),
     .fault-table td:nth-child(8) {
         display: none;
+    }
+}
+
+/* ---------- 手机 / 平板卡片（≤900px） ----------
+   六列表格在窄屏会把时间、型号、类型逐字竖排，读不出完整信息；768 的平板
+   同样放不下这张表。这里把每行改成一张卡片：时间/类型/HTTP → 引擎·型号 →
+   原因 → 可滚动的上游片段 → 书名。901px 以上仍是原来的表格。 */
+@media (max-width: 900px) {
+    .fault-table {
+        display: block;
+        font-size: 12px;
+    }
+    .fault-table thead {
+        display: none;
+    }
+    .fault-table tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .fault-table tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        grid-template-areas:
+            "time type http"
+            "engine model model"
+            "reason reason reason"
+            "excerpt excerpt excerpt"
+            "book book book";
+        gap: 4px 8px;
+        padding: 10px 12px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        box-shadow: var(--shadow-sm);
+    }
+    .fault-table td {
+        display: block;
+        padding: 0;
+        border: 0;
+        vertical-align: baseline;
+    }
+    .fault-table td:nth-child(n) {
+        width: auto;
+    }
+    .fault-table td:nth-child(1) {
+        grid-area: time;
+        align-self: center;
+        color: var(--text-3);
+        font-size: 11px;
+        white-space: nowrap;
+    }
+    .fault-table td:nth-child(2) {
+        grid-area: engine;
+        min-width: 0;
+        color: var(--text-2);
+        font-size: 11px;
+        overflow-wrap: anywhere;
+    }
+    .fault-table td:nth-child(3) {
+        grid-area: model;
+        min-width: 0;
+        color: var(--text-2);
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 11px;
+        overflow-wrap: anywhere;
+    }
+    .fault-table td:nth-child(4) {
+        grid-area: type;
+        justify-self: start;
+        align-self: center;
+        padding: 1px 8px;
+        border-radius: var(--r-full);
+        background: var(--surface-3);
+        color: var(--text-2);
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .fault-table td:nth-child(5) {
+        grid-area: http;
+        justify-self: end;
+        align-self: center;
+        color: var(--text-3);
+        font-size: 10px;
+        white-space: nowrap;
+    }
+    .fault-table td:nth-child(5)::before {
+        content: "HTTP ";
+    }
+    .fault-table td:nth-child(6) {
+        grid-area: reason;
+        color: var(--text-1);
+        font-size: 12px;
+        line-height: 1.55;
+    }
+    .fault-table td:nth-child(6)::before {
+        content: "原因 ";
+        color: var(--text-3);
+    }
+    /* 片段可能是一整段 JSON：给固定最大高度 + 内部滚动，
+       既不再把卡片撑成半屏，也不会像省略号那样把内容彻底丢掉 */
+    .fault-table td:nth-child(7) {
+        grid-area: excerpt;
+        max-height: 6em;
+        overflow: auto;
+        overscroll-behavior: contain;
+        padding: 6px 8px;
+        border-radius: var(--r-sm);
+        background: var(--surface-2);
+        color: var(--text-2);
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 11px;
+        line-height: 1.45;
+    }
+    .fault-table td:nth-child(7)::before {
+        content: "上游返回片段";
+        display: block;
+        margin-bottom: 2px;
+        color: var(--text-3);
+        font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        font-size: 10px;
+    }
+    /* ≤760 时这两列被藏掉了；卡片里它们是排查上下文，恢复显示 */
+    .fault-table td:nth-child(5),
+    .fault-table td:nth-child(8) {
+        display: block;
+    }
+    .fault-table td:nth-child(8) {
+        grid-area: book;
+        color: var(--text-3);
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 10px;
+        overflow-wrap: anywhere;
+    }
+    .fault-table td:nth-child(8)::before {
+        content: "当时判的书 ";
+        opacity: 0.8;
+    }
+    .fault-table td.fault-empty {
+        grid-column: 1 / -1;
+        padding: 14px 0;
+        text-align: center;
     }
 }

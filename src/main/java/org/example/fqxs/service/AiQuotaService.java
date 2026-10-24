@@ -22,8 +22,8 @@ import java.util.concurrent.TimeUnit;
  * <p>这里只做"平台真的开放了接口"的部分，不做猜测：</p>
  * <ul>
  *   <li><b>硅基流动</b>：有 {@code GET /v1/user/info}，能拿到赠送余额、充值余额与合计；</li>
- *   <li><b>智谱</b>：没有公开的余额/用量接口（2026-10-21 实测 {@code /api/paas/v4/account/balance}、
- *       {@code /balance}、{@code /user/info}、{@code /usage} 全 404），只能给控制台入口与静态说明；</li>
+ *   <li><b>智谱</b>：没有公开的余额/用量接口（{@code /api/paas/v4/account/balance}、
+ *       {@code /balance}、{@code /user/info}、{@code /usage} 均返回 404），只能提供控制台入口与静态说明；</li>
  *   <li><b>EdgeOne Makers</b>：同样没有公开的额度接口，50 万 token/月是固定规则。</li>
  * </ul>
  *

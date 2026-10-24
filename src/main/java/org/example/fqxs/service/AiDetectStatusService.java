@@ -81,15 +81,15 @@ public class AiDetectStatusService {
             verdicts.add(new AiDetectService.EngineVerdict(
                     verdictRow.getBookId(),
                     verdictRow.getEngine(),
-                    verdictRow.getModel() == null ? "" : verdictRow.getModel(),
+                    verdictRow.getModel(),
                     verdictRow.getPromptId() == null ? "" : verdictRow.getPromptId(),
                     verdictRow.getSampleMode() == null ? "" : verdictRow.getSampleMode(),
                     verdictRow.getSampleSpan() == null ? "" : verdictRow.getSampleSpan(),
-                    verdictRow.getAiFlag() == null ? 0 : verdictRow.getAiFlag(),
+                    verdictRow.getAiFlag(),
                     verdictRow.getAiScore() == null ? 0 : verdictRow.getAiScore(),
                     verdictRow.getReason() == null ? "" : verdictRow.getReason(),
                     verdictRow.getCheckedTime() == null ? "" : VERDICT_TIME_FORMAT.format(verdictRow.getCheckedTime()),
-                    verdictRow.getChaptersChecked() == null ? 0 : verdictRow.getChaptersChecked()));
+                    verdictRow.getChaptersChecked()));
         }
         return verdicts;
     }
@@ -112,16 +112,16 @@ public class AiDetectStatusService {
             history.add(new AiDetectService.VerdictLogEntry(
                     logRow.getBookId(),
                     logRow.getEngine(),
-                    logRow.getModel() == null ? "" : logRow.getModel(),
+                    logRow.getModel(),
                     logRow.getPromptId() == null ? "" : logRow.getPromptId(),
                     logRow.getSampleMode() == null ? "" : logRow.getSampleMode(),
                     logRow.getSampleSpan() == null ? "" : logRow.getSampleSpan(),
-                    logRow.getAiFlag() == null ? 0 : logRow.getAiFlag(),
+                    logRow.getAiFlag(),
                     logRow.getAiScore() == null ? 0 : logRow.getAiScore(),
                     logRow.getReason() == null ? "" : logRow.getReason(),
-                    logRow.getCheckedTime() == null ? "" : VERDICT_TIME_FORMAT.format(logRow.getCheckedTime()),
-                    logRow.getChaptersChecked() == null ? 0 : logRow.getChaptersChecked(),
-                    logRow.getKind() == null ? "" : logRow.getKind()));
+                    VERDICT_TIME_FORMAT.format(logRow.getCheckedTime()),
+                    logRow.getChaptersChecked(),
+                    logRow.getKind()));
         }
         return history;
     }
