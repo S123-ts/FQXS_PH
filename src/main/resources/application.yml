@@ -83,6 +83,18 @@ app:
   # 管理类接口（DELETE /api/db/**）的访问令牌；留空表示这些接口一律 403
   admin-token: ${APP_ADMIN_TOKEN:}
 
+  # 自动重拉全部榜单：每天 01:00 跑一次，等价页面上的「一键获取」。
+  # 抓取口径与手动一致（只抓展示中的分类、每类抓满），撞上手动批量时让路跳过。
+  # cron 是六段（秒 分 时 日 月 周），时区固定东八区；enabled=false 可整体关闭。
+  rank-daily-fetch-enabled: ${RANK_DAILY_FETCH_ENABLED:true}
+  rank-daily-fetch-cron: "${RANK_DAILY_FETCH_CRON:0 0 1 * * *}"
+
+  # 首次启动播种的拉取频道：all=男女频都拉 / male=只拉男频 / female=只拉女频。
+  # 只影响「一键获取」与每日全量的批量拉取，以及作者信息补齐的排队范围；
+  # 页面单个分类照旧点哪个拉哪个。仓库版默认 all，自用包由 make-selfuse-jar.py 改成 male。
+  # 已有库改这里不生效（配置只在键不存在时播种），要在页面上切一次「拉取」。
+  default-fetch-gender: ${APP_FETCH_GENDER:all}
+
   # 登录凭据：仓库内默认值为占位，公网部署必须用环境变量覆盖
   # 默认账号口令按要求写死在程序里，改它有两种方式：改这里，或用环境变量覆盖。
   # ⚠️ 仓库里的默认值是 admin/admin（公开仓库不写个人口令）；公网部署必须用
@@ -95,6 +107,21 @@ app:
     # 开这个开关就必须让反代覆盖 X-Forwarded-For（Nginx: proxy_set_header X-Forwarded-For $remote_addr;），
     # 否则客户端能自己伪造来源绕过失败限流
     trust-forwarded-for: ${APP_AUTH_TRUST_FORWARDED:false}
+
+  # 日志落库：程序日志 / API 日志 / 第三方抽取日志各一张表（app_log / api_log / third_party_log）。
+  # 写入走 LogBuffer 有界队列 + LogDbWriter 每 250ms 批量落库，队列满了丢弃而不是拖慢业务。
+  # 保留策略跟随书：书还在 novel_rank 里就留着它的日志，书没了（掉榜/删除）就一起删；
+  # 没有 book_id 的系统级日志按下面的天数过期。清理任务每天 03:30 跑（错开凌晨 1 点拉榜）。
+  log-db:
+    enabled: ${LOG_DB_ENABLED:true}
+    app-enabled: ${LOG_DB_APP_ENABLED:true}
+    api-enabled: ${LOG_DB_API_ENABLED:true}
+    third-party-enabled: ${LOG_DB_THIRD_PARTY_ENABLED:true}
+    app-keep-days: ${LOG_DB_APP_KEEP_DAYS:7}
+    api-keep-days: ${LOG_DB_API_KEEP_DAYS:30}
+    third-party-keep-days: ${LOG_DB_THIRD_PARTY_KEEP_DAYS:30}
+    retention-cron: "${LOG_DB_RETENTION_CRON:0 30 3 * * *}"
+    query-max-rows: ${LOG_DB_QUERY_MAX_ROWS:500}
 
 # AI 文判定：三家免费引擎（GLM / 千帆 ERNIE / 硅基流动 Qwen）跑整本初筛与逐章校验
 ai:
@@ -123,11 +150,18 @@ ai:
     # 这些线路依赖第三方共享云手机，挂了按形态判失败并冷却，期间深章直接跳过、回退免费区
     third-party-cooldown-seconds: 300
     # 作者性别/评分补全：第三方 /info 约 19KB/本，线路很小。
-    # 只补当前榜单热度前 50，单次最多 10 本（前端默认 5），每本间隔 2 秒、严格串行。
+    # 前三项只管页面上的手动「补作者信息」：只补当前榜单热度前 50，单次最多 10 本（前端默认 5），每本间隔 2 秒。
     book-meta-top-rank: 50
     book-meta-batch-max: 10
     book-meta-interval-millis: 2000
-    rating-refresh-days: 10
+    # 评分的重新拉取周期：超过这个天数的书会再进一次待补队列（2026-10-24 由 10 改 5）
+    rating-refresh-days: 5
+    # 启动后台补齐：应用起来后开一个守护线程，按「一分钟一本」的线性节拍
+    # （book-meta-backfill-per-hour，默认 60）从待补清单队首按热度降序逐本推进，
+    # 一轮推进 perHour 本、轮末重取队列，不限前 50。
+    # 与手动按钮共用同一把锁，抢不到就让路；连续 3 本失败按线路不可用处理，歇 10 分钟再开下一轮。
+    book-meta-backfill-enabled: true
+    book-meta-backfill-per-hour: ${BOOK_META_BACKFILL_PER_HOUR:60}
     # 失败留证与自动停用：同一引擎连续 N 次判定失败就停用 M 小时（到期自动恢复，重启不丢）
     fault-suspend-threshold: 3
     fault-suspend-hours: 48

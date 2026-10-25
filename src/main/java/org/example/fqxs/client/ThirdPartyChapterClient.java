@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.example.fqxs.config.AiDetectConfig;
 import org.example.fqxs.exception.CrawlException;
+import org.example.fqxs.exception.ItemUnavailableException;
 import org.example.fqxs.model.ChapterSample;
 import org.example.fqxs.util.PuaDecoder;
 import org.springframework.stereotype.Component;
@@ -67,7 +68,8 @@ public class ThirdPartyChapterClient {
         if (cached != null) {
             return cached;
         }
-        ChapterSample sample = sources.fetch(CONTENT_API, "item_id", itemId, "第三方正文",
+        // 只有 item_id，书 id 靠调用链的 MDC（BookLogContext）带进来，日志才能归到那本书名下
+        ChapterSample sample = sources.fetch(CONTENT_API, "item_id", itemId, "第三方正文", null,
                 body -> parseSample(body, itemId));
         chapterCache.put(itemId, sample);
         return sample;
@@ -102,7 +104,8 @@ public class ThirdPartyChapterClient {
         }
         String plainText = puaDecoder.decode(ChapterClient.htmlToPlainText(rawContent));
         if (plainText.isBlank()) {
-            throw new CrawlException("第三方正文解析后为空（itemId=" + itemId + "）");
+            // 这一章本身没有可用文字（纯图片/空章），是章的问题，不该冷却整条线路
+            throw new ItemUnavailableException("第三方正文解析后为空（itemId=" + itemId + "）");
         }
         return new ChapterSample(itemId, chapterData.path("title").asText(""), plainText, plainText.length());
     }

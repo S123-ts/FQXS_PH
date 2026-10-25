@@ -55,13 +55,36 @@ export function isForceRejudge() {
    每页条数是从控件读出来的派生状态，放这里让渲染与动作共用一份。 */
 export function getEffectivePageSize() {
     const select = /** @type {HTMLSelectElement} */ (document.getElementById('pageSizeSelect'));
-    if (!select) return 30;
+    if (!select) return 10;
     if (select.value !== 'custom') {
         return parseInt(select.value, 10);
     }
     const customInput = /** @type {HTMLInputElement} */ (document.getElementById('customPageSize'));
     const custom = parseInt(customInput.value, 10);
     return isNaN(custom) || custom < 1 ? 1 : custom;
+}
+
+/* ---------- 评分下限的记忆：改成 9.5 下次打开仍是 9.5 ---------- */
+
+const MIN_RATING_KEY = 'fqxs.minRating';
+
+/** 读回评分下限原文；没存过返回 null（页面继续用 HTML 里的默认 9.0）。空串表示不筛。 */
+export function loadMinRating() {
+    try {
+        const raw = localStorage.getItem(MIN_RATING_KEY);
+        return raw === null ? null : raw;
+    } catch {
+        return null;
+    }
+}
+
+/** 存评分下限；非法值由调用方先归一，这里只负责持久化。 */
+export function saveMinRating(value) {
+    try {
+        localStorage.setItem(MIN_RATING_KEY, String(value ?? ''));
+    } catch {
+        // 隐私模式等场景写不进去，偏好只是增强
+    }
 }
 
 /* ---------- 分类显示偏好（筛选勾选集 ⇄ 导航显示集，localStorage 持久化） ---------- */

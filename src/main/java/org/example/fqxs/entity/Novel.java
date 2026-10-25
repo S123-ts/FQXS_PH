@@ -104,7 +104,7 @@ public class Novel {
     @Column(name = "author_gender_checked_time")
     private LocalDateTime authorGenderCheckedTime;
 
-    /** 评分刷新时间：超过 10 天才重新请求。 */
+    /** 评分刷新时间：超过 5 天才重新请求。 */
     @Column(name = "rating_checked_time")
     private LocalDateTime ratingCheckedTime;
 

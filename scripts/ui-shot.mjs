@@ -29,8 +29,8 @@ const browser = await chromium.launch({
 
 const sizes = [[1440, 1000], [1200, 900], [1000, 900], [768, 900], [420, 900]];
 /* 登录门：每个 page 是独立上下文，所以每档宽度都要先登录一次 */
-const FQXS_USER = process.env.FQXS_USER || '123';
-const FQXS_PASS = process.env.FQXS_PASS || 'admin';
+const FQXS_USER = process.env.FQXS_USER || process.env.APP_LOGIN_USER || 'admin';
+const FQXS_PASS = process.env.FQXS_PASS || process.env.APP_LOGIN_PASSWORD || 'admin';
 for (const [w, h] of sizes) {
     const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: 1, colorScheme: SCHEME });
     const loginRes = await page.request.post(`${URL}/api/auth/login`, {

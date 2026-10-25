@@ -68,6 +68,11 @@ def main() -> None:
             sub(r'%s-api-key: \$\{%s:[^}]*\}' % (prop, env),
                 '%s-api-key: ${%s:%s}' % (prop, env, value))
 
+        # 自用默认只拉男频：批量拉取与作者信息补齐都只走男频，第三方额度不摊给女频。
+        # 只在键不存在时播种，已有库想改要在页面「拉取」里切一次。
+        sub(r'default-fetch-gender: \$\{APP_FETCH_GENDER:[^}]*\}',
+            'default-fetch-gender: ${APP_FETCH_GENDER:male}')
+
         patched = yml.encode('utf-8')
         with zipfile.ZipFile(dst, 'w') as zout:
             for item in zin.infolist():
@@ -75,6 +80,7 @@ def main() -> None:
 
     print(f'已生成 {dst}')
     print(f'  登录：{user} / {"*" * len(password)}')
+    print('  拉取频道默认：male（只拉男频）')
     for prop, _ in ENGINES:
         value = keys.get(prop, '')
         print(f'  {prop}-api-key：{"…" + value[-4:] if value else "(空)"}')

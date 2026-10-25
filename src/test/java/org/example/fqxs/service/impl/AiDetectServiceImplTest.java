@@ -183,6 +183,22 @@ class AiDetectServiceImplTest {
     }
 
     @Test
+    void idempotentGuardReusesTheLatestVerdictWhenSeveralModelsJudged() {
+        NovelAiVerdict older = verdictRow("b1", GLM, 1, 40.0, "旧型号",
+                LocalDateTime.of(2026, 10, 20, 10, 0, 0));
+        NovelAiVerdict newer = verdictRow("b1", GLM, 2, 88.0, "新型号",
+                LocalDateTime.of(2026, 10, 21, 10, 0, 0));
+        when(verdictRepository.findByBookIdAndEngineAndModelIn("b1", GLM, List.of(TEST_MODEL)))
+                .thenReturn(List.of(older, newer));
+
+        AiDetectService.FreeDetectResult result = aiDetectService.detectFree("b1", GLM, false);
+
+        assertThat(result.cached()).isTrue();
+        assertThat(result.aiFlag()).isEqualTo(2);
+        assertThat(result.aiScore()).isEqualTo(88.0);
+    }
+
+    @Test
     void forceIgnoresCachedVerdictAndRejudges() {
         when(aiDetectClient.detectFree(eq(GLM), eq(TEST_MODEL), any())).thenReturn(new AiVerdict(75, GLM, ""));
 

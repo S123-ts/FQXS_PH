@@ -50,7 +50,8 @@ public class ThirdPartyCatalogClient {
         if (bookId == null || bookId.isBlank()) {
             throw new IllegalArgumentException("bookId 不能为空");
         }
-        return sources.fetch(CATALOG_API, "book_id", bookId, "第三方目录", body -> parseCatalog(body, bookId));
+        return sources.fetch(CATALOG_API, "book_id", bookId, "第三方目录", bookId,
+                body -> parseCatalog(body, bookId));
     }
 
     /** 是否还有线路可试；官方目录失败时上层据此决定要不要合并两边的失败原因。 */

@@ -8,7 +8,8 @@
 import { state, getEffectivePageSize } from './state.js';
 import {
     getDisplayedGroups, getDisplayedCategories, getRankTypes,
-    getActiveRankType, findRankType, categoryDisplayName
+    getActiveRankType, findRankType, categoryDisplayName,
+    getFetchGenders, getFetchGender
 } from './meta.js';
 
 export function escapeText(value) {
@@ -61,6 +62,28 @@ export function renderRankTypeControls() {
 /* 切换请求在飞行中时锁住整组，防止连点发出并发保存 */
 export function setRankTypeControlsDisabled(disabled) {
     const host = document.getElementById('rankTypeGroup');
+    if (!host) return;
+    host.querySelectorAll('input[type="radio"]').forEach(input => {
+        /** @type {HTMLInputElement} */ (input).disabled = disabled;
+    });
+}
+
+/* 拉取频道分段单选：只决定批量拉取抓哪些分类，与当前展示无关。
+   选项与文案都由 meta.fetchGenders 给，前端不写死「男频/女频」 */
+export function renderFetchGenderControls() {
+    const host = document.getElementById('fetchGenderGroup');
+    if (!host) return;
+    const active = getFetchGender();
+    host.innerHTML = getFetchGenders().map(item => `
+        <label class="rank-type-option" title="${escapeAttr(item.hint || '')}">
+            <input type="radio" name="fetchGender" value="${escapeAttr(item.code)}"${item.code === active ? ' checked' : ''}>
+            <span class="rank-type-pill"><span class="rank-type-dot" aria-hidden="true"></span>${escapeText(item.name)}</span>
+        </label>
+    `).join('');
+}
+
+export function setFetchGenderControlsDisabled(disabled) {
+    const host = document.getElementById('fetchGenderGroup');
     if (!host) return;
     host.querySelectorAll('input[type="radio"]').forEach(input => {
         /** @type {HTMLInputElement} */ (input).disabled = disabled;
@@ -191,6 +214,10 @@ export function updateChromeSummary() {
         `字数 ${selectedLabel('filterWord', '全部')}`,
         `状态 ${selectedLabel('filterStatus', '全部')}`
     ];
+    const ratingInput = /** @type {HTMLInputElement} */ (document.getElementById('filterMinRating'));
+    if (ratingInput && ratingInput.value.trim() !== '') {
+        parts.push(`评分 ≥${ratingInput.value.trim()}`);
+    }
     const blocked = /** @type {HTMLInputElement} */ (document.getElementById('filterBlocked'));
     if (blocked && blocked.checked) parts.push('只看已拉黑');
     const watched = /** @type {HTMLInputElement} */ (document.getElementById('filterWatched'));
@@ -393,6 +420,79 @@ export function formatAiScore(score) {
     return `${Math.round(value * 10) / 10}%`;
 }
 
+/* 逐章校验行的型号带 #verify 后缀：分组、展示、历史过滤都按去掉后缀的型号算 */
+export function verdictBaseModel(model) {
+    return String(model || '').replace(/#verify$/, '');
+}
+
+/* 详情卡头的型号短名：去掉厂商前缀（Qwen/xxx → xxx），过长的截断 */
+export function verdictModelShort(model) {
+    const base = verdictBaseModel(model);
+    const tail = base.includes('/') ? base.slice(base.lastIndexOf('/') + 1) : base;
+    return tail.length > 22 ? tail.slice(0, 21) + '…' : tail;
+}
+
+function isVerifyHit(verdict) {
+    return String(verdict.model || '').endsWith('#verify') && Number(verdict.aiFlag) === 2;
+}
+
+/* 每个引擎最终展示哪一条结论：徽章与详情卡共用这一份规则。
+   ① 逐章命中优先——它是更明确的证据；
+   ② 其余情况取时间最新的（逐章查完且非 AI 的结论，比几天前的初筛更可信）；
+   ③ aiFlag=0 的逐章进度行不是结论，一律不参与挑选（由校验按钮承载进度）。
+   之前徽章与详情各写一份，注释还写着"同规则"，实际一个偏好命中、一个只取最新，
+   同一引擎会出现「徽章 80% / 详情 85%」。任何改动只改这里。 */
+export function pickEngineVerdicts(rows) {
+    const picked = new Map();
+    for (const verdict of rows || []) {
+        if (Number(verdict.aiFlag) === 0) continue; // 进度行不是结论
+        const previous = picked.get(verdict.engine);
+        if (!previous) {
+            picked.set(verdict.engine, verdict);
+            continue;
+        }
+        if (isVerifyHit(previous) && !isVerifyHit(verdict)) continue;
+        if (isVerifyHit(verdict) && !isVerifyHit(previous)) {
+            picked.set(verdict.engine, verdict);
+            continue;
+        }
+        if (String(verdict.checkedTime || '') >= String(previous.checkedTime || '')) {
+            picked.set(verdict.engine, verdict);
+        }
+    }
+    return [...picked.values()];
+}
+
+/* 详情卡按「引擎 × 型号」各取一条：逐章命中优先 → 有结论的最新 → 只有进度行时取进度最新。
+   与徽章共用同一优先级，只是分组粒度到型号；进度行在这里用于展示「未完成」。 */
+export function pickModelVerdicts(rows) {
+    const picked = new Map();
+    for (const verdict of rows || []) {
+        const key = `${verdict.engine || ''}|${verdictBaseModel(verdict.model)}`;
+        const previous = picked.get(key);
+        if (!previous) {
+            picked.set(key, verdict);
+            continue;
+        }
+        const conclusion = Number(verdict.aiFlag) > 0;
+        const previousConclusion = Number(previous.aiFlag) > 0;
+        if (!previousConclusion && conclusion) {
+            picked.set(key, verdict);
+            continue;
+        }
+        if (previousConclusion && !conclusion) continue;
+        if (isVerifyHit(previous) && !isVerifyHit(verdict)) continue;
+        if (isVerifyHit(verdict) && !isVerifyHit(previous)) {
+            picked.set(key, verdict);
+            continue;
+        }
+        if (String(verdict.checkedTime || '') >= String(previous.checkedTime || '')) {
+            picked.set(key, verdict);
+        }
+    }
+    return [...picked.values()];
+}
+
 /* 各引擎徽章：每个 API 的结论与 AI 率单独展示（GLM / ERNIE / QW），互不合并——
    引擎之间结论不同时，用户一眼能看出分歧。无结论的引擎不显示。
 
@@ -403,32 +503,7 @@ export function formatAiScore(score) {
 function renderAiBadges(book) {
     // aiVerdicts 正常是 {}；防御成对象，避免状态被意外清成 null 时整页渲染中断
     const verdicts = (state.aiVerdicts || {})[book.bookId] || [];
-    /* 同一引擎现在可能有两条结论行并存：整本初筛（model 不带后缀）与逐章校验
-       （model 形如 glm-4-flash#verify）。徽章只放一枚，规则：
-       ① 逐章命中优先——它是更明确的证据；
-       ② 其余情况取时间最新的（逐章查完且非 AI 的结论，比几天前的初筛更可信）。 */
-    const picked = new Map();
-    for (const verdict of verdicts) {
-        if (Number(verdict.aiFlag) === 0) continue; // 进度行不是结论
-        const isVerify = String(verdict.model || '').endsWith('#verify');
-        const previous = picked.get(verdict.engine);
-        if (!previous) {
-            picked.set(verdict.engine, verdict);
-            continue;
-        }
-        const prevVerifyHit = String(previous.model || '').endsWith('#verify')
-            && Number(previous.aiFlag) === 2;
-        const verifyHit = isVerify && Number(verdict.aiFlag) === 2;
-        if (prevVerifyHit && !verifyHit) continue;
-        if (verifyHit && !prevVerifyHit) {
-            picked.set(verdict.engine, verdict);
-            continue;
-        }
-        if (String(verdict.checkedTime || '') >= String(previous.checkedTime || '')) {
-            picked.set(verdict.engine, verdict);
-        }
-    }
-    return [...picked.values()].map(verdict => {
+    return pickEngineVerdicts(verdicts).map(verdict => {
         const shortName = aiEngineName(verdict.engine);
         const score = formatAiScore(verdict.aiScore);
         /* 结论徽章本身就是重跑入口：点一下用该引擎 + 当前取样规则重判这本书。

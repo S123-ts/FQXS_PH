@@ -113,7 +113,7 @@ class RankControllerTest {
     @Test
     void allBooksPassesWatchedOnlyToTheQuery() throws Exception {
         when(novelService.findAllBooksFiltered(anyList(), any(), any(), anyBoolean(), anyBoolean(), any(),
-                anyInt(), anyInt(), any())).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 50), 0));
+                anyInt(), anyInt(), any(), any())).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 50), 0));
         when(novelService.countAllNovels()).thenReturn(1L);
 
         mvc.perform(get("/api/rank/allBooks").param("category", "M_WESTERN_FANTASY")
@@ -121,7 +121,8 @@ class RankControllerTest {
                 .andExpect(status().isOk());
 
         verify(novelService).findAllBooksFiltered(
-                eq(List.of("M_WESTERN_FANTASY")), any(), any(), eq(false), eq(true), eq("read"), eq(1), eq(50), isNull());
+                eq(List.of("M_WESTERN_FANTASY")), any(), any(), eq(false), eq(true), eq("read"), eq(1), eq(50),
+                isNull(), isNull());
     }
 
     @Test
@@ -160,7 +161,7 @@ class RankControllerTest {
     @Test
     void readEndpointsNeedNoToken() throws Exception {
         when(novelService.findAllBooksFiltered(anyList(), any(), any(), anyBoolean(), anyBoolean(), any(),
-                anyInt(), anyInt(), any())).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 50), 0));
+                anyInt(), anyInt(), any(), any())).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 50), 0));
         when(novelService.countAllNovels()).thenReturn(5L);
 
         mvc.perform(get("/api/rank/allBooks").param("category", "M_WESTERN_FANTASY").session(session))
@@ -172,14 +173,15 @@ class RankControllerTest {
                 .andExpect(jsonPath("$.size").value(50));
 
         verify(novelService).findAllBooksFiltered(
-                eq(List.of("M_WESTERN_FANTASY")), any(), any(), eq(false), eq(false), eq("read"), eq(1), eq(50), isNull());
+                eq(List.of("M_WESTERN_FANTASY")), any(), any(), eq(false), eq(false), eq("read"), eq(1), eq(50),
+                isNull(), isNull());
     }
 
     /** fetchAll 的汇总字段在信封顶层（与 data 平级），前端 data.js 显式依赖这个位置读
         failedCategories/dbNotSavedCategories；挪进 data 里前端会静默读空。 */
     @Test
     void fetchAllPutsSummaryFieldsAtEnvelopeTopLevel() throws Exception {
-        when(rankService.crawlAllCategories(100)).thenReturn(List.of(
+        when(rankService.crawlAllCategories(FanqieConfig.FULL_FETCH_SIZE)).thenReturn(List.of(
                 new CategoryCrawlResult("M_SCI_FI", "科幻末世", 1, 8, 100, true, null),
                 new CategoryCrawlResult("F_ERA", "年代", 0, 79, 0, false, "上游风控"),
                 new CategoryCrawlResult("M_SCI_FI", "科幻末世", 1, 8, 50, false, null)));
@@ -209,7 +211,7 @@ class RankControllerTest {
     /** 展示分类清空后 fetchAll 空跑：200 + 空汇总，而不是 500 或越界。 */
     @Test
     void fetchAllWithNoDisplayedCategoriesReturnsEmptySummary() throws Exception {
-        when(rankService.crawlAllCategories(100)).thenReturn(List.of());
+        when(rankService.crawlAllCategories(FanqieConfig.FULL_FETCH_SIZE)).thenReturn(List.of());
 
         MvcResult issued = mvc.perform(get("/api/rank/write-token").session(session)).andReturn();
         String token = mapper.readTree(issued.getResponse().getContentAsString()).get("data").asText();
@@ -296,7 +298,7 @@ class RankControllerTest {
                 .andExpect(jsonPath("$.data.categories.length()").value(37))
                 .andExpect(jsonPath("$.data.categories[2].code").value("M_SCI_FI"));
 
-        verify(configService).updateConfig("new", List.of("M_SCI_FI", "F_ERA"));
+        verify(configService).updateConfig("new", List.of("M_SCI_FI", "F_ERA"), null);
     }
 
     /** rankType 取值域由 @Pattern 钉住，非法值 400 且不触碰配置服务。 */

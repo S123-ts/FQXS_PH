@@ -178,6 +178,35 @@ class RankServiceImplTest {
         assertFalse(result.dbSaved(), "落库失败必须让前端知道");
     }
 
+    /** 一键获取（全量）按「请求数」判完整：70 本就是新的整榜口径，71–100 名应按掉榜清掉。 */
+    @Test
+    void fullFetchTreatsRequestedSizeAsWholeList() throws Exception {
+        when(configService.getDisplayedCategories()).thenReturn(List.of(CategoryCatalog.M_WESTERN_FANTASY));
+        when(apiClient.fetchRankUrl(anyInt(), anyInt(), anyInt(), anyInt(), anyInt()))
+                .thenReturn(payload(70, 100));
+        when(novelService.saveOrUpdateNovelList(anyList(), any(), any(), anyBoolean()))
+                .thenReturn(new NovelService.UpsertSummary(70, 0, 0));
+
+        service.crawlAllCategories(FanqieConfig.FULL_FETCH_SIZE);
+
+        verify(novelService).saveOrUpdateNovelList(anyList(), eq(CategoryCatalog.M_WESTERN_FANTASY),
+                any(), eq(true));
+    }
+
+    /** 单页抓取仍按上游 total_num 判完整：首页 30 条不能把 31–100 名当掉榜删掉。 */
+    @Test
+    void singlePageNeverPrunesEvenWhenItIsTheFirstPage() throws Exception {
+        when(apiClient.fetchRankUrl(anyInt(), anyInt(), anyInt(), anyInt(), anyInt()))
+                .thenReturn(payload(30, 100));
+        when(novelService.saveOrUpdateNovelList(anyList(), any(), any(), anyBoolean()))
+                .thenReturn(new NovelService.UpsertSummary(30, 0, 0));
+
+        service.getRankList(CategoryCatalog.M_WESTERN_FANTASY, 1, 30);
+
+        verify(novelService).saveOrUpdateNovelList(anyList(), eq(CategoryCatalog.M_WESTERN_FANTASY),
+                any(), eq(false));
+    }
+
     /** 批量只遍历展示中的分类；一个分类空榜只算该分类失败，其余分类仍要跑完。 */
     @Test
     void emptyBoardOnlyFailsItsOwnCategoryInABulkCrawl() throws Exception {
@@ -218,6 +247,25 @@ class RankServiceImplTest {
         assertEquals(79, results.get(0).subcategoryId());
         verify(apiClient, times(1)).fetchRankUrl(eq(0), eq(79), eq(2), eq(1), eq(10));
         verify(apiClient, never()).fetchRankUrl(eq(1), anyInt(), anyInt(), anyInt(), anyInt());
+    }
+
+    /** 拉取频道设成男频：批量拉取跳过女频分类，女频数据既不覆盖也不触发掉榜清理。 */
+    @Test
+    void bulkCrawlSkipsFemaleCategoriesWhenFetchGenderIsMale() throws Exception {
+        when(configService.getDisplayedCategories())
+                .thenReturn(List.of(CategoryCatalog.M_SCI_FI, CategoryCatalog.F_ERA));
+        when(configService.getFetchGender()).thenReturn(ConfigService.FETCH_MALE);
+        when(apiClient.fetchRankUrl(anyInt(), anyInt(), anyInt(), anyInt(), anyInt()))
+                .thenReturn(rankPayload(2));
+        when(novelService.saveOrUpdateNovelList(anyList(), any(), any(), anyBoolean()))
+                .thenReturn(new NovelService.UpsertSummary(2, 0, 0));
+
+        List<CategoryCrawlResult> results = service.crawlAllCategories(10);
+
+        assertEquals(1, results.size());
+        assertEquals("M_SCI_FI", results.get(0).code());
+        // 女频分类一次都没请求
+        verify(apiClient, never()).fetchRankUrl(eq(0), anyInt(), anyInt(), anyInt(), anyInt());
     }
 
     @Test

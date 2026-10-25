@@ -47,6 +47,12 @@
                         <!-- 榜单类型分段单选，选项由 JS 按 meta.rankTypes 填充 -->
                         <div class="rank-type" id="rankTypeGroup" role="radiogroup" aria-labelledby="rankTypeLabel"></div>
                     </div>
+                    <div class="ctl-group ctl-fetch">
+                        <span class="ctl-label" id="fetchGenderLabel">拉取：</span>
+                        <!-- 拉取频道分段单选（全部/男频/女频），选项由 JS 按 meta.fetchGenders 填充。
+                             只影响「一键获取」与每日全量的批量拉取范围，不影响当前页面的展示 -->
+                        <div class="rank-type" id="fetchGenderGroup" role="radiogroup" aria-labelledby="fetchGenderLabel"></div>
+                    </div>
                     <div class="ctl-group ctl-pagesize">
                         <label for="pageSizeSelect">每页显示：</label>
                         <!-- 下拉与自定义数字框合成一个连体控件：一次设置只呈现为一个整体，
@@ -55,7 +61,7 @@
                             <select id="pageSizeSelect" class="select" aria-label="每页显示条数">
                                 <option value="10">10</option>
                                 <option value="20">20</option>
-                                <option value="30" selected>30</option>
+                                <option value="10" selected>10</option>
                                 <option value="custom">自定义</option>
                             </select>
                             <!-- 选中「自定义」时 JS 移除 hidden 显示此项 -->
@@ -138,19 +144,20 @@
                 </div>
                 <div class="filter-group">
                     <label for="filterWord">字数：</label>
-                    <!-- 默认「全部」：新书榜的书大多不足 100 万字，默认卡字数会把整榜筛空 -->
+                    <!-- 默认 100 万以上（2026-10-25 用户拍板）；新书榜的书大多不足 100 万字，
+                         切到新书榜时这个默认值会把整榜筛空，要看全量需手动切「全部」 -->
                     <select id="filterWord" class="select">
-                        <option value="" selected>全部</option>
+                        <option value="">全部</option>
                         <option value="100w以内">100万以内</option>
-                        <option value="100w以上">100万以上</option>
+                        <option value="100w以上" selected>100万以上</option>
                         <option value="200w以上">200万以上</option>
                     </select>
                 </div>
                 <div class="filter-group">
                     <label for="filterStatus">状态：</label>
                     <select id="filterStatus" class="select">
-                        <option value="" selected>全部</option>
-                        <option value="连载中">连载中</option>
+                        <option value="">全部</option>
+                        <option value="连载中" selected>连载中</option>
                         <option value="已完结">已完结</option>
                     </select>
                 </div>
@@ -165,6 +172,13 @@
                     <!-- 第三方线路很小：每次只取 5 本、串行 2 秒，只补当前榜单热度前 50 -->
                     <button type="button" class="btn btn-ghost btn-sm" id="enrichMetaBtn"
                             title="补当前榜单热度前 50 的作者性别与评分；每次最多 5 本，间隔 2 秒">补作者信息</button>
+                </div>
+                <div class="filter-group filter-rating">
+                    <label for="filterMinRating">评分：</label>
+                    <!-- 第三方评分下限：0–10，留空 = 不筛；具体值记在 localStorage（改 9.5 下次仍是 9.5） -->
+                    <input type="number" id="filterMinRating" class="input filter-rating-input"
+                           min="0" max="10" step="0.1" value="9.0" inputmode="decimal"
+                           placeholder="全部" aria-label="最低第三方评分（0-10，留空不筛）">
                 </div>
                 <div class="filter-group filter-flags">
                     <label class="check-label" for="filterBlocked">

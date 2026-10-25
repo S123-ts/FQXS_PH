@@ -15,6 +15,8 @@ export function setMeta(data) {
     meta = {
         rankTypes: Array.isArray(d.rankTypes) ? d.rankTypes : [],
         activeRankType: d.activeRankType || '',
+        fetchGender: d.fetchGender || 'all',
+        fetchGenders: Array.isArray(d.fetchGenders) ? d.fetchGenders : [],
         categories: Array.isArray(d.categories) ? d.categories : []
     };
 }
@@ -29,6 +31,19 @@ export function getRankTypes() {
 
 export function getActiveRankType() {
     return meta ? meta.activeRankType : '';
+}
+
+/* 拉取频道三档由后端给出（all/male/female），前端不写死文案 */
+export function getFetchGenders() {
+    return meta ? meta.fetchGenders : [];
+}
+
+export function getFetchGender() {
+    return meta ? meta.fetchGender : 'all';
+}
+
+export function findFetchGender(code) {
+    return getFetchGenders().find(g => g.code === code) || null;
 }
 
 export function getCategories() {

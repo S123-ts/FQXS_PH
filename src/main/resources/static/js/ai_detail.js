@@ -1,14 +1,15 @@
 // @ts-check
 /* ============================================================
    js/ai_detail.js - 「AI 判定详情」面板
-   卡片头取 state.aiVerdicts（/api/ai/verdicts 批量拉取，每引擎最新一条，与徽章同规则）；
+   卡片头按「引擎 × 型号」各取一条（pickModelVerdicts，与行内徽章同一优先级：
+   逐章命中优先，否则最新）；卡内的「校验记录」只列该型号的每一轮判定——
    卡内的「校验记录」打开面板后按 engine 异步拉 /api/ai/verdicts/history——
    明细表同型号重判会覆盖，只有流水能看出「这本书被谁判过几次、每次什么结论」。
    ============================================================ */
 
 import { state } from './state.js';
 import { fetchVerdictHistoryApi } from './api.js';
-import { escapeText, escapeAttr, aiEngineName, formatAiScore } from './render.js';
+import { escapeText, escapeAttr, aiEngineName, formatAiScore, pickModelVerdicts, verdictBaseModel, verdictModelShort } from './render.js';
 
 // 打开面板的触发按钮，关闭时把焦点还给它
 let detailOpener = null;
@@ -49,13 +50,13 @@ function renderCard(row) {
     const pending = row.placeholder === true;
     const flag = pending ? { label: '未判定', cls: 'human' } : flagMeta(Number(row.aiFlag));
     const engine = aiEngineName(row.engine);
+    // 卡片按型号分开：头部带型号短名，完整型号在 title 与 meta 里可查
+    const model = pending ? '' : verdictModelShort(row.model);
     const checked = Number(row.chaptersChecked || 0);
     // 初筛是整本判定，chaptersChecked=0；逐章校验才按章计进度
     const scope = checked > 0 ? `逐章校验 ${checked} 章` : '整本初筛';
     const meta = pending ? '已配置密钥，但还没有判定这本书' : `${scope} · ${row.checkedTime || '—'}`;
-    // 同引擎可跑多个型号/提示词：徽章只显示最新一条，差异在详情里交代清楚
     const tech = [
-        modelLabel(row.model),
         row.promptId ? `提示词 ${row.promptId}` : '',
         sampleLabel(row)
     ].filter(Boolean).join(' · ');
@@ -65,13 +66,15 @@ function renderCard(row) {
     // 校验记录占位：打开面板后异步填充，先给一行「加载中」保持高度稳定
     const history = pending
         ? ''
-        : `<div class="ai-log-host" data-engine="${escapeAttr(row.engine || '')}">
+        : `<div class="ai-log-host" data-engine="${escapeAttr(row.engine || '')}"
+                data-model="${escapeAttr(verdictBaseModel(row.model))}">
                <div class="ai-log-status">校验记录加载中…</div>
            </div>`;
     return `
         <div class="ai-detail-card${pending ? ' pending' : ''}">
             <div class="ai-detail-head">
-                <span class="ai-detail-engine" title="${escapeAttr(row.engine || '')}">${escapeText(engine)}</span>
+                <span class="ai-detail-engine"
+                      title="${escapeAttr(row.engine + (pending ? '' : ' / ' + modelLabel(row.model)))}">${escapeText(engine + (model ? ' · ' + model : ''))}</span>
                 <span class="ai-detail-score">${pending ? '—' : escapeText(formatAiScore(row.aiScore))}</span>
                 <span class="ai-badge ${flag.cls}">${flag.label}</span>
             </div>
@@ -83,27 +86,19 @@ function renderCard(row) {
     `;
 }
 
-/* 已配置密钥的引擎都要出现：有结论的展示率，没有的显式标成「未判定」。
-   只列 verdict 行会把「还没跑过 QW」藏起来，看起来像系统只有 GLM 一个引擎 */
-function mergeConfiguredEngines(rows) {
-    // 同一引擎可能有多个型号的行：卡片头取「最新一条」，与行内徽章的规则完全一致，
-    // 否则徽章显示 GLM 80%、点开详情显示 GLM 62%，同一份数据自相矛盾。
-    // 各型号/各轮次的差异在卡内的「校验记录」里摊开。
-    const byEngine = new Map();
-    for (const row of rows) {
-        const previous = byEngine.get(row.engine);
-        if (!previous || String(row.checkedTime || '') >= String(previous.checkedTime || '')) {
-            byEngine.set(row.engine, row);
-        }
-    }
+/* 详情卡按「引擎 × 型号」展开：判过的型号每个一张卡；某引擎一张卡都没有时补一张「未判定」。
+   只列判过的型号会把「还没跑过 QW」藏起来，看起来像系统只有 GLM 一个引擎。 */
+function mergeConfiguredModels(rows) {
+    const byModel = new Map(pickModelVerdicts(rows).map(row => [
+        `${row.engine || ''}|${verdictBaseModel(row.model)}`, row]));
     const configured = (state.aiStatus && state.aiStatus.verifyEngines) || [];
     configured.forEach(engine => {
         const id = engine && engine.id;
-        if (id && !byEngine.has(id)) {
-            byEngine.set(id, { engine: id, placeholder: true });
+        if (id && !rows.some(row => row.engine === id)) {
+            byModel.set(`${id}|`, { engine: id, placeholder: true });
         }
     });
-    return [...byEngine.values()];
+    return [...byModel.values()];
 }
 
 /* 一轮流水在做什么：初筛是整本，rerun 是手点模型名重跑，verify/progress 是逐章的第几步 */
@@ -161,14 +156,16 @@ function renderHistory(entries) {
 function fillHistory(bookId, entries) {
     const body = document.getElementById('aiDetailBody');
     if (!body || detailBookId !== bookId) return;
-    const byEngine = new Map();
+    const byModel = new Map();
+    const keyOf = (row) => `${row.engine || ''}|${verdictBaseModel(row.model)}`;
     for (const entry of entries) {
-        if (!byEngine.has(entry.engine)) byEngine.set(entry.engine, []);
-        byEngine.get(entry.engine).push(entry);
+        const key = keyOf(entry);
+        if (!byModel.has(key)) byModel.set(key, []);
+        byModel.get(key).push(entry);
     }
     body.querySelectorAll('.ai-log-host').forEach(host => {
-        const engine = host.getAttribute('data-engine') || '';
-        host.innerHTML = renderHistory(byEngine.get(engine) || []);
+        const key = `${host.getAttribute('data-engine') || ''}|${host.getAttribute('data-model') || ''}`;
+        host.innerHTML = renderHistory(byModel.get(key) || []);
     });
 }
 
@@ -181,20 +178,21 @@ export function openAiDetail(bookId, opener) {
 
     const books = state.lastData && Array.isArray(state.lastData.data) ? state.lastData.data : [];
     const book = books.find(item => String(item.bookId) === String(bookId));
-    const rows = mergeConfiguredEngines(((state.aiVerdicts || {})[bookId] || []).slice());
-    // 固定引擎顺序，避免数据库返回顺序变化导致每次打开顺序不同
+    const rows = mergeConfiguredModels(((state.aiVerdicts || {})[bookId] || []).slice());
+    // 固定引擎顺序、型号按字典序，避免数据库返回顺序变化导致每次打开顺序不同
     const order = ['glm-4-flash', 'qianfan-ernie-speed', 'qwen2.5-7b'];
     rows.sort((a, b) => {
         const ai = order.indexOf(a.engine);
         const bi = order.indexOf(b.engine);
-        return (ai === -1 ? order.length : ai) - (bi === -1 ? order.length : bi);
+        const byEngine = (ai === -1 ? order.length : ai) - (bi === -1 ? order.length : bi);
+        return byEngine !== 0 ? byEngine : verdictBaseModel(a.model).localeCompare(verdictBaseModel(b.model));
     });
 
     if (title) {
         title.textContent = book && book.title ? `AI 判定详情 · ${book.title}` : 'AI 判定详情';
     }
     if (hint) {
-        hint.textContent = '卡片头是该引擎最新一次结论；卡内「校验记录」列出这本书的每一轮判定（含被覆盖的旧结论）';
+        hint.textContent = '卡片按型号展示最新一次结论；卡内「校验记录」列出该型号的每一轮判定（含被覆盖的旧结论）';
     }
     body.innerHTML = rows.length
         ? `<div class="ai-detail-list">${rows.map(renderCard).join('')}</div>`

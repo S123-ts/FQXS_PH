@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.fqxs.client.ChapterClient;
 import org.example.fqxs.client.ThirdPartyCatalogClient;
 import org.example.fqxs.exception.CrawlException;
+import org.example.fqxs.logging.BookLogContext;
 import org.example.fqxs.model.ChapterRef;
 import org.springframework.stereotype.Service;
 
@@ -56,30 +57,33 @@ public class ChapterDirectoryService {
      * @throws CrawlException 官方失败且没有可用的第三方线路，或两边都失败
      */
     public List<ChapterRef> listChapters(String bookId, long slotIntervalMillis) {
-        List<ChapterRef> cachedFallback = fallbackCache.get(bookId);
-        if (cachedFallback != null) {
-            return cachedFallback;
-        }
-        if (chapterClient.hasCachedDirectory(bookId)) {
-            // 缓存命中不回源，也就不能白占共享槽位
-            return chapterClient.listChapters(bookId);
-        }
-        upstreamThrottle.awaitSlot(slotIntervalMillis);
-        try {
-            return chapterClient.listChapters(bookId);
-        } catch (CrawlException officialFailure) {
-            if (!thirdPartyCatalogClient.isUsable()) {
-                throw officialFailure;
+        // 圈定这本书：官方目录与第三方目录回退的日志都归到它名下
+        try (BookLogContext ignored = BookLogContext.open(bookId)) {
+            List<ChapterRef> cachedFallback = fallbackCache.get(bookId);
+            if (cachedFallback != null) {
+                return cachedFallback;
+            }
+            if (chapterClient.hasCachedDirectory(bookId)) {
+                // 缓存命中不回源，也就不能白占共享槽位
+                return chapterClient.listChapters(bookId);
             }
             upstreamThrottle.awaitSlot(slotIntervalMillis);
             try {
-                List<ChapterRef> chapters = thirdPartyCatalogClient.listChapters(bookId);
-                fallbackCache.put(bookId, chapters);
-                log.warn("官方目录失败，已改用第三方目录: bookId={}, 官方原因={}", bookId, officialFailure.getMessage());
-                return chapters;
-            } catch (CrawlException fallbackFailure) {
-                throw new CrawlException("官方目录失败（" + officialFailure.getMessage()
-                        + "），第三方目录也失败（" + fallbackFailure.getMessage() + "）", fallbackFailure);
+                return chapterClient.listChapters(bookId);
+            } catch (CrawlException officialFailure) {
+                if (!thirdPartyCatalogClient.isUsable()) {
+                    throw officialFailure;
+                }
+                upstreamThrottle.awaitSlot(slotIntervalMillis);
+                try {
+                    List<ChapterRef> chapters = thirdPartyCatalogClient.listChapters(bookId);
+                    fallbackCache.put(bookId, chapters);
+                    log.warn("官方目录失败，已改用第三方目录: bookId={}, 官方原因={}", bookId, officialFailure.getMessage());
+                    return chapters;
+                } catch (CrawlException fallbackFailure) {
+                    throw new CrawlException("官方目录失败（" + officialFailure.getMessage()
+                            + "），第三方目录也失败（" + fallbackFailure.getMessage() + "）", fallbackFailure);
+                }
             }
         }
     }

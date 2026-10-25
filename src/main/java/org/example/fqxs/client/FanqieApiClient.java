@@ -10,6 +10,8 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 import org.example.fqxs.config.FanqieConfig;
 import org.example.fqxs.exception.CrawlException;
+import org.example.fqxs.logging.ApiLogEntry;
+import org.example.fqxs.logging.OutboundApiLog;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -63,18 +65,35 @@ public class FanqieApiClient {
                 .build();
 
         long start = System.currentTimeMillis();
+        // 出站日志的三个字段在这里就地累积：finally 里无论成功失败都要落一行 api_log
+        Integer status = null;
+        Integer bytes = null;
+        String outcome = ApiLogEntry.OUTCOME_OK;
+        String error = null;
         try (Response response = httpClient.newCall(request).execute()) {
-            int status = response.code();
+            status = response.code();
             if (!response.isSuccessful()) {
+                outcome = ApiLogEntry.OUTCOME_ERROR;
                 if (status >= 500 || status == 429) {
-                    throw new IOException("上游返回可重试状态码: " + status);
+                    error = "上游返回可重试状态码: " + status;
+                    throw new IOException(error);
                 }
-                throw new CrawlException("上游返回 " + status + "，请检查接口参数或是否被风控");
+                error = "上游返回 " + status + "，请检查接口参数或是否被风控";
+                throw new CrawlException(error);
             }
             ResponseBody body = response.body();
             String json = body == null ? "" : new String(body.bytes(), StandardCharsets.UTF_8);
+            bytes = json.length();
             log.info("抓取成功: {} 字符, 耗时 {} ms", json.length(), System.currentTimeMillis() - start);
             return objectMapper.readTree(json);
+        } catch (IOException ioException) {
+            outcome = ApiLogEntry.OUTCOME_ERROR;
+            if (error == null) {
+                error = ioException.getMessage();
+            }
+            throw ioException;
+        } finally {
+            OutboundApiLog.record(url, status, bytes, System.currentTimeMillis() - start, outcome, error);
         }
     }
 

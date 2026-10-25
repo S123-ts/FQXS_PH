@@ -467,6 +467,11 @@
 }
 /* 两个视图过滤（只看已拉黑 / 只看关注）同组：语义都是“缩小当前列表”，
    桌面并排、手机共用一整行，不各占半行留下空洞 */
+/* 评分下限：数字框只装 0–10，一位小数，不跟着筛选行被拉宽 */
+.filter-rating-input {
+    width: 84px;
+    min-width: 84px;
+}
 .filter-group.filter-flags {
     gap: 14px;
 }
@@ -484,7 +489,9 @@
     display: inline-flex;
     align-items: center;
     gap: var(--sp-2);
-    min-width: 140px;
+    /* 只装「全部 / 已选 N 个」这类短文本：最小值收窄，长分类名在 toggle 内省略 */
+    min-width: 92px;
+    max-width: 200px;
     padding: 6px 12px;
     border: 1px solid var(--border-strong);
     border-radius: var(--r-sm);
@@ -496,7 +503,14 @@
 .dropdown-toggle:hover {
     border-color: var(--accent);
 }
+/* 选中项名称可能很长：留给省略号，避免把整个筛选行撑开 */
+#dropdownLabel {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .dropdown-arrow {
+    flex-shrink: 0;
     font-size: 10px;
     color: var(--text-3);
     transition: transform 0.15s;

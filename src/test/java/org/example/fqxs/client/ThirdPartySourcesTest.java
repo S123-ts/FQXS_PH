@@ -105,6 +105,45 @@ class ThirdPartySourcesTest {
         assertFalse(sources.hasUsable());
     }
 
+    /** 书级失败（已下架）不冷却线路：换一条线也是同一本书，但线路本身还是好的。 */
+    @Test
+    void itemLevelFailureDoesNotCoolTheLine() {
+        AtomicInteger calls = new AtomicInteger();
+        ThirdPartySources sources = sources(config(FIRST), chain -> {
+            calls.incrementAndGet();
+            return json(chain, 200, GOOD_BODY);
+        });
+
+        assertThrows(org.example.fqxs.exception.ItemUnavailableException.class,
+                () -> sources.fetch("/info", "book_id", "1", "第三方详情", body -> {
+                    throw new org.example.fqxs.exception.ItemUnavailableException("书籍已下架");
+                }));
+        assertTrue(sources.hasUsable(), "书的错不能连累线路冷却");
+
+        assertEquals(GOOD_BODY, sources.fetch("/info", "book_id", "2", "第三方详情",
+                ThirdPartySourcesTest::parse));
+        assertEquals(2, calls.get(), "线路没有被冷却，下一次请求应该照常发出");
+    }
+
+    /** 全部线路都在冷却时抛专用异常，调用方能区分「线路在休息」与「线路坏了」。 */
+    @Test
+    void noUsableLineIsReportedAsCoolingNotFailure() {
+        AiDetectConfig config = config(FIRST);
+        config.setThirdPartyCooldownSeconds(60);
+        AtomicInteger calls = new AtomicInteger();
+        ThirdPartySources sources = sources(config, chain -> {
+            calls.incrementAndGet();
+            return json(chain, 200, STACK_BODY);
+        });
+
+        assertThrows(CrawlException.class, () -> sources.fetch("/content", "item_id", "c1", "第三方正文",
+                ThirdPartySourcesTest::parse));
+        assertThrows(org.example.fqxs.exception.LineCoolingException.class,
+                () -> sources.fetch("/content", "item_id", "c2", "第三方正文",
+                        ThirdPartySourcesTest::parse));
+        assertEquals(1, calls.get(), "冷却期内不该再发请求");
+    }
+
     /** 关掉开关一条都不问：降级形态不产生任何上游请求。 */
     @Test
     void disabledConfigNeverAsksAnyLine() {

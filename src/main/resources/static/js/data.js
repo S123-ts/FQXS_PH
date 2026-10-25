@@ -12,12 +12,13 @@ import {
 import { state, getEffectivePageSize, loadShownPreference, saveShownPreference } from './state.js';
 import {
     isMetaReady, setMeta, getDisplayedCategories, findCategory,
-    findRankType, getActiveRankType, categoryDisplayName
+    findRankType, getActiveRankType, categoryDisplayName, findFetchGender
 } from './meta.js';
 import {
     renderBooks, renderEmptyState, renderLoading, renderNav,
     populateFilterCategories, renderRankTypeControls,
     setRankTypeControlsDisabled, updateStatsMeta, updateChromeSummary, showToast, patchBookRow,
+    renderFetchGenderControls, setFetchGenderControlsDisabled,
     setBtnState, setBatchProgress
 } from './render.js';
 import { closeConfigPanel, setConfigSaveBusy } from './render_config.js';
@@ -52,6 +53,7 @@ export function bootstrap() {
             restoreShownPreference();
             renderNav();
             renderRankTypeControls();
+            renderFetchGenderControls();
             updateStatsMeta();
             loadData();
         })
@@ -116,9 +118,12 @@ export function loadData(keepPage) {
         const wordRange = /** @type {HTMLSelectElement} */ (document.getElementById('filterWord')).value || '';
         const status = /** @type {HTMLSelectElement} */ (document.getElementById('filterStatus')).value || '';
         const authorGender = /** @type {HTMLSelectElement} */ (document.getElementById('filterAuthor')).value || '';
+        // 评分下限：留空 = 不筛；值在 change 时已归一化到 0–10 一位小数
+        const minRating = (/** @type {HTMLInputElement} */ (document.getElementById('filterMinRating'))).value.trim();
         state.blockedView = /** @type {HTMLInputElement} */ (document.getElementById('filterBlocked')).checked;
         state.watchedView = /** @type {HTMLInputElement} */ (document.getElementById('filterWatched')).checked;
-        state.filtersActive = !!(wordRange || status || authorGender || state.blockedView || state.watchedView)
+        state.filtersActive = !!(wordRange || status || authorGender || minRating
+                || state.blockedView || state.watchedView)
             || selected.length < getDisplayedCategories().length;
         // 服务端分页：页码与条数随筛选一起下发，字段齐全才能把 total 算对
         const url = `${API_BASE}/allBooks`
@@ -128,6 +133,7 @@ export function loadData(keepPage) {
             + `&blockedOnly=${state.blockedView}`
             + `&watchedOnly=${state.watchedView}`
             + `&authorGender=${encodeURIComponent(authorGender)}`
+            + `&minRating=${encodeURIComponent(minRating)}`
             + `&page=${state.currentPage}`
             + `&size=${getEffectivePageSize()}`;
 
@@ -229,6 +235,36 @@ export function saveRankType(rankType) {
         .finally(() => {
             rankTypeInFlight = false;
             setRankTypeControlsDisabled(false);
+        });
+}
+
+/* ---------- 拉取频道保存 ---------- */
+
+let fetchGenderInFlight = false;
+
+/* 切拉取频道只改「下次批量抓哪些分类」，当前页面上的数据不动，
+   所以保存成功后不重新 loadData——重载会让人以为切频道把数据清掉了 */
+export function saveFetchGender(fetchGender) {
+    if (fetchGenderInFlight || !fetchGender) return;
+    fetchGenderInFlight = true;
+    setFetchGenderControlsDisabled(true);
+
+    saveConfigApi({fetchGender: fetchGender})
+        .then(body => {
+            setMeta((body && body.data) || {});
+            renderFetchGenderControls(); // 以服务器回包为准校正选中态
+            renderRankTypeControls();    // meta 整体替换过，榜单选中态一并校正
+            const item = findFetchGender(fetchGender);
+            showToast(`拉取范围已设为「${item ? item.name : fetchGender}」，下次拉取生效`, 'success');
+        })
+        .catch(err => {
+            console.error('切换拉取频道失败:', err);
+            showToast('切换拉取频道失败: ' + err.message, 'error');
+            renderFetchGenderControls(); // 失败把选中态滚回服务端当前值
+        })
+        .finally(() => {
+            fetchGenderInFlight = false;
+            setFetchGenderControlsDisabled(false);
         });
 }
 

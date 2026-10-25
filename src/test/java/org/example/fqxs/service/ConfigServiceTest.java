@@ -34,16 +34,37 @@ class ConfigServiceTest {
         configService.seedDefaults();
         configService.seedDefaults();
 
-        assertThat(appConfigRepository.count()).isEqualTo(2);
+        assertThat(appConfigRepository.count()).isEqualTo(3);
         assertThat(configService.getActiveRankType()).isEqualTo("read");
+        assertThat(configService.getFetchGender()).isEqualTo(ConfigService.FETCH_ALL);
         assertThat(configService.getDisplayCategoryCodes())
                 .containsExactly(ConfigService.DEFAULT_DISPLAY_CATEGORIES.split(","));
     }
 
+    /** 拉取频道：默认全拉，改成男频后只放行男频分类，非法值直接拒绝而不是静默回退。 */
+    @Test
+    void fetchGenderRoundTripAndValidation() {
+        configService.seedDefaults();
+        assertThat(configService.getFetchGender()).isEqualTo(ConfigService.FETCH_ALL);
+        assertThat(configService.shouldFetch(CategoryCatalog.F_ERA)).isTrue();
+
+        configService.updateConfig(null, null, ConfigService.FETCH_MALE);
+
+        assertThat(configService.getFetchGender()).isEqualTo(ConfigService.FETCH_MALE);
+        assertThat(configService.shouldFetch(CategoryCatalog.M_SCI_FI)).isTrue();
+        assertThat(configService.shouldFetch(CategoryCatalog.F_ERA)).isFalse();
+        // 显式传 null 表示「不改」，不能被当成 all 覆盖回去
+        configService.updateConfig("read", null, null);
+        assertThat(configService.getFetchGender()).isEqualTo(ConfigService.FETCH_MALE);
+
+        assertThatThrownBy(() -> configService.updateConfig(null, null, "both"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(configService.getFetchGender()).isEqualTo(ConfigService.FETCH_MALE);
+    }
+
     @Test
     void rankTypeAndDisplayCategoriesRoundTrip() {
-        configService.seedDefaults();
-        configService.updateConfig("new", List.of("F_ERA", "M_SCI_FI"));
+        configService.seedDefaults();        configService.updateConfig("new", List.of("F_ERA", "M_SCI_FI"));
 
         assertThat(configService.getActiveRankType()).isEqualTo("new");
         assertThat(configService.getActiveRankMold()).isEqualTo(1);

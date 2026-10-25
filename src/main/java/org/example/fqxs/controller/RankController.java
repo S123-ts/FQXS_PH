@@ -60,7 +60,8 @@ public class RankController {
      */
     @PostMapping("/config")
     public ApiResponse<MetaView> updateConfig(@Valid @RequestBody ConfigUpdateRequest request) {
-        configService.updateConfig(request.getRankType(), request.getDisplayCategories());
+        configService.updateConfig(request.getRankType(), request.getDisplayCategories(),
+                request.getFetchGender());
         return ApiResponse.data("配置已更新", buildMetaView());
     }
 
@@ -71,6 +72,7 @@ public class RankController {
                 fanqieConfig, new TypeReference<LinkedHashMap<String, Object>>() {
                 });
         data.put("rankType", configService.getActiveRankType());
+        data.put("fetchGender", configService.getFetchGender());
         data.put("displayCategories", configService.getDisplayCategoryCodes());
         return ApiResult.data("success", data);
     }
@@ -197,6 +199,7 @@ public class RankController {
             @RequestParam(defaultValue = "false") boolean blockedOnly,
             @RequestParam(defaultValue = "false") boolean watchedOnly,
             @RequestParam(required = false) String authorGender,
+            @RequestParam(required = false) Double minRating,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "50") int size) {
 
@@ -208,7 +211,8 @@ public class RankController {
             }
         }
         Page<Novel> result = novelService.findAllBooksFiltered(
-                codes, wordRange, status, blockedOnly, watchedOnly, rankType, page, size, authorGender);
+                codes, wordRange, status, blockedOnly, watchedOnly, rankType, page, size, authorGender,
+                minRating);
         Map<String, Object> body = ApiResult.page(result.getContent(), result.getTotalElements());
         body.put("rankType", rankType);
         // 区分“库整体为空”（前端要降级到第一个分类）与“当前榜单分区为空”（正常状态，摆空态）
@@ -220,15 +224,17 @@ public class RankController {
 
     /**
      * 补作者性别与评分：一次最多 5 本（服务端上限 10），严格串行、每本间隔 2 秒。
-     * 只补当前榜单热度前 50；性别只取一次，评分 10 天刷新。
+     * 只补当前榜单热度前 50；性别只取一次，评分 5 天刷新。
      */
     @Operation(summary = "补作者性别与评分（小批量）")
     @PostMapping("/enrich")
     public ApiResponse<BookMetaEnricher.Result> enrichBookMeta(
             @RequestParam(defaultValue = "5") int limit) {
         BookMetaEnricher.Result result = bookMetaEnricher.enrich(limit, configService.getActiveRankType());
-        return ApiResponse.data("已更新 " + result.updated() + " 本，前 50 还剩 "
-                + result.remaining() + " 本待补", result);
+        String message = "已更新 " + result.updated() + " 本"
+                + (result.skipped() > 0 ? "，跳过 " + result.skipped() + " 本（已下架）" : "")
+                + "，前 50 还剩 " + result.remaining() + " 本待补";
+        return ApiResponse.data(message, result);
     }
 
     @PostMapping("/block/{bookId}")
@@ -258,13 +264,22 @@ public class RankController {
     }
 
     private MetaView buildMetaView() {
-        return new MetaView(rankTypes(), configService.getActiveRankType(), categoryView());
+        return new MetaView(rankTypes(), configService.getActiveRankType(),
+                configService.getFetchGender(), fetchGenders(), categoryView());
     }
 
     private List<MetaView.RankTypeView> rankTypes() {
         return List.of(
                 new MetaView.RankTypeView("read", "阅读榜", 2),
                 new MetaView.RankTypeView("new", "新书榜", 1));
+    }
+
+    /** 拉取频道三档；hint 直接写清影响，页面显示在选项下面。 */
+    private List<MetaView.FetchGenderView> fetchGenders() {
+        return List.of(
+                new MetaView.FetchGenderView("all", "全部", "男频女频都拉"),
+                new MetaView.FetchGenderView("male", "男频", "只拉男频分类"),
+                new MetaView.FetchGenderView("female", "女频", "只拉女频分类"));
     }
 
     /** 全 37 项，男频块在前女频块在后，顺序即目录声明顺序。 */

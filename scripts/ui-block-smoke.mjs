@@ -1,11 +1,11 @@
 /* ============================================================
-   scripts/ui-block-smoke.mjs - 拉黑与批量操作的浏览器回归（19 项）
+   scripts/ui-block-smoke.mjs - 拉黑与批量操作的浏览器回归（24 项，含关注）
    背景：《技术交接》§7 长期挂着「拉黑只能人工回归」。拉黑是唯一会
    改动数据的行内操作，靠肉眼点一遍既不可重复、又有误伤真实库的风险。
 
-   **写接口全部打桩**：block/unblock 的 POST 由 page.route 拦掉并回成功信封，
+   **写接口全部打桩**：block/unblock/watch/unwatch 的 POST 由 page.route 拦掉并回成功信封，
    真实库一行都不动。所以它验证的是前端行为（确认态、计数、串行次数、
-   撤销回滚），不是后端写入本身。
+   撤销回滚、关注即时生效），不是后端写入本身。
 
    运行：npm i（一次性）；node scripts/ui-block-smoke.mjs
    退出码：0 全绿；1 有断言失败
@@ -18,8 +18,8 @@ const URL_BASE = process.env.FQXS_URL || 'http://localhost:8080';
 
 /* 登录门：未登录时页面全部被 302 到 /login，断言必然全红。
    凭据与 application.yml 的 app.auth 默认值一致，可用环境变量覆盖 */
-const FQXS_USER = process.env.FQXS_USER || '123';
-const FQXS_PASS = process.env.FQXS_PASS || 'admin';
+const FQXS_USER = process.env.FQXS_USER || process.env.APP_LOGIN_USER || 'admin';
+const FQXS_PASS = process.env.FQXS_PASS || process.env.APP_LOGIN_PASSWORD || 'admin';
 
 async function loadChromium() {
     let specifier = process.env.PW_CORE || 'playwright-core';
@@ -60,6 +60,12 @@ if (!loginRes.ok()) {
 const pageErrors = [];
 page.on('pageerror', e => pageErrors.push(String(e)));
 
+/* allBooks 是纯读请求，不会被下面的 POST 桩拦下；记下 URL 用来核对筛选参数 */
+const allBooksUrls = [];
+page.on('request', req => {
+    if (/\/allBooks/.test(req.url())) allBooksUrls.push(req.url());
+});
+
 /* 写接口打桩：只放行 GET，其余 POST 一律回成功信封，真实库不动 */
 const calls = [];
 await page.route('**/api/rank/**', async (route) => {
@@ -84,12 +90,17 @@ const waitRendered = () => page.waitForFunction(() => {
 
 try {
     await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    /* 默认作者筛选是「男作者」：批量与多选冒烟不依赖它，先切「全部」 */
+    await page.selectOption('#filterAuthor', '');
+    await page.waitForFunction(() => document.querySelectorAll('#bookList .book-item').length > 1,
+        { timeout: 20000 });
     await waitRendered();
 
     /* ---------- 1. 批量条与行内方框 ---------- */
+    /* 2026-10-24：批量条未选中时不再占位（桌面与手机一致），勾选后才出现 */
     const barVisible = await page.isVisible('#batchBar');
     const checks = await page.locator('#bookList .row-check').count();
-    check('「全部」视图出现批量条', barVisible);
+    check('未选中时批量条不占位', !barVisible);
     check('每行都有勾选框', checks > 0 && checks === await page.locator('.book-item').count(),
         `${checks} 个`);
 
@@ -126,6 +137,33 @@ try {
         calls.filter(u => /\/block\//.test(u)).length === 2, calls.join(' | '));
     const selectionAfter = await page.textContent('.batch-count').catch(() => '');
     check('批量完成后选择被清空', (selectionAfter || '').includes('勾选左侧方框'), selectionAfter);
+
+    /* ---------- 4.5 关注：一次点击即发请求（不做二段确认） ---------- */
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+    await waitRendered();
+    const watchCount = await page.locator('#bookList .watch-btn').count();
+    const watchableRows = await page.locator('#bookList .book-item[data-book-id]').count();
+    check('每行都有「关注」按钮', watchCount > 0 && watchCount === watchableRows,
+        `${watchCount}/${watchableRows}`);
+    const watchBtn = page.locator('#bookList .watch-btn').first();
+    const watchLabel = ((await watchBtn.textContent()) || '').trim();
+    check('未关注的书显示「关注」', watchLabel === '关注', watchLabel);
+
+    calls.length = 0;
+    await watchBtn.click();
+    await page.waitForTimeout(600);
+    check('点一次关注立即发出写请求（无二段确认）',
+        calls.filter(u => /\/watch\//.test(u)).length === 1, calls.join(' | '));
+
+    /* 「只看关注」是纯读筛选：请求必须带 watchedOnly=true */
+    await page.locator('#filterWatched').check();
+    await page.waitForTimeout(1200);
+    const watchedUrl = allBooksUrls[allBooksUrls.length - 1] || '';
+    check('「只看关注」请求带 watchedOnly=true', /watchedOnly=true/.test(watchedUrl), watchedUrl);
+    const summaryText = (await page.textContent('#chromeSummaryText')) || '';
+    check('「只看关注」进入折叠摘要', summaryText.includes('只看关注'), summaryText);
+    await page.locator('#filterWatched').uncheck();
+    await page.waitForTimeout(800);
 
     /* ---------- 5. 拉黑二段确认 ---------- */
     /* 批量那轮会触发整页重绘：直接刷新一遍，拿到稳定的行节点再测确认态 */
@@ -178,13 +216,14 @@ try {
         await waitRendered();
         const catChecks = await page.locator('#bookList .row-check').count();
         const catBarVisible = await page.isVisible('#batchBar');
-        check('分类视图也有勾选框与批量条', catChecks > 0 && catBarVisible,
+        check('分类视图有勾选框且未选中时批量条不占位', catChecks > 0 && !catBarVisible,
             `分类=${code} / ${catChecks} 个 / 批量条可见=${catBarVisible}`);
 
         // 「校验选中」按钮随选中数启用：未选禁用，勾一本后启用并显示计数
         const disabledBefore = await page.locator('#aiPageBtn').isDisabled();
         await page.locator('#bookList .row-check').first().check();
         await page.waitForTimeout(200);
+        check('分类视图勾选后批量条出现', await page.isVisible('#batchBar'));
         const disabledAfter = await page.locator('#aiPageBtn').isDisabled();
         const countText = (await page.locator('#aiPageBtn .btn-count').textContent()) || '';
         check('勾选后「校验选中」才可用并显示数量',

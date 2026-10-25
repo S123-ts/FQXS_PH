@@ -51,7 +51,7 @@ class FanqieConfigTest {
 
     @Test
     void wholeListCrawlFetchesEveryRankNotThePageSize() {
-        assertThat(FanqieConfig.wholeListSize(null)).isEqualTo(FanqieConfig.MAX_PAGE_SIZE);
+        assertThat(FanqieConfig.wholeListSize(null)).isEqualTo(FanqieConfig.FULL_FETCH_SIZE);
         assertThat(FanqieConfig.wholeListSize(20)).isEqualTo(20);
         assertThat(FanqieConfig.wholeListSize(99999)).isEqualTo(FanqieConfig.MAX_PAGE_SIZE);
     }

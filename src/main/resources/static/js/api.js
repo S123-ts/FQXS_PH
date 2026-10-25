@@ -128,7 +128,7 @@ export function fetchMetaApi(signal) {
     return requestJson(`${API_BASE}/meta`, {signal});
 }
 
-/* 保存榜单配置：rankType / displayCategories 两字段均可选，不传即“不修改”。
+/* 保存榜单配置：rankType / displayCategories / fetchGender 三字段均可选，不传即“不修改”。
    成功回包与 meta 同形（保存后的全量视图），调用方直接用它刷新本地缓存 */
 export function saveConfigApi(patch, signal) {
     const body = {};
@@ -137,6 +137,9 @@ export function saveConfigApi(patch, signal) {
     }
     if (patch && patch.displayCategories !== undefined) {
         body.displayCategories = patch.displayCategories;
+    }
+    if (patch && patch.fetchGender !== undefined) {
+        body.fetchGender = patch.fetchGender;
     }
     return postJson(`${API_BASE}/config`, {
         signal,

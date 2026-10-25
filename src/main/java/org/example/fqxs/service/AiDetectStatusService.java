@@ -77,7 +77,7 @@ public class AiDetectStatusService {
             return List.of();
         }
         List<AiDetectService.EngineVerdict> verdicts = new ArrayList<>();
-        for (NovelAiVerdict verdictRow : verdictRepository.findByBookIdIn(bookIds)) {
+        for (NovelAiVerdict verdictRow : verdictRepository.findByBookIdInOrderByCheckedTimeDescIdDesc(bookIds)) {
             verdicts.add(new AiDetectService.EngineVerdict(
                     verdictRow.getBookId(),
                     verdictRow.getEngine(),

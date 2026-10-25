@@ -1,12 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- 控制台 + 滚动文件：批量判定失败时能从文件回溯（此前只有控制台） -->
+<!--
+  三个出口：
+    ① CONSOLE  开发/前台观察
+    ② FILE     滚动文件，保留原始完整信息（含未截断的异常栈），落库只做镜像
+    ③ DB       DbLogAppender → LogBuffer 有界队列 → LogDbWriter 每 250ms 批量写 app_log
+  DB 这一路永远不阻塞业务：队列满就丢，丢多少由 writer 定期报到 stderr。
+  关掉落库用 app.log-db.enabled=false（appender 仍然挂着，队列被 writer 排空并丢弃）。
+-->
 <configuration>
     <property name="LOG_DIR" value="${LOG_DIR:-log}"/>
+
+    <!-- bookId 来自 MDC（BookLogContext），系统级日志为空时这里就少一段，不影响可读性 -->
+    <property name="PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} %X{bookId} - %msg%n"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <charset>UTF-8</charset>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
+            <pattern>${PATTERN}</pattern>
         </encoder>
     </appender>
 
@@ -20,13 +31,17 @@
         </rollingPolicy>
         <encoder>
             <charset>UTF-8</charset>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
+            <pattern>${PATTERN}</pattern>
         </encoder>
     </appender>
+
+    <!-- 只入队，不写库：连接与事务由 Spring 的 JdbcTemplate 管，见 LogDbWriter -->
+    <appender name="DB" class="org.example.fqxs.logging.DbLogAppender"/>
 
     <!-- 级别仍由 application.yml 的 logging.level 控制 -->
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="FILE"/>
+        <appender-ref ref="DB"/>
     </root>
 </configuration>

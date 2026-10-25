@@ -31,11 +31,12 @@ public interface NovelService {
      * @param page         页码，从 1 开始
      * @param size         每页条数（服务层会钳到上限）
      * @param authorGender 作者性别筛选：male / female / unknown / 空=全部
+     * @param minRating    第三方评分下限（0–10），null=不筛；无评分的书不满足下限
      * @return 当前页数据与命中总数
      */
     Page<Novel> findAllBooksFiltered(List<String> categoryCodes, String wordRange, String status,
                                      boolean blockedOnly, boolean watchedOnly, String rankType,
-                                     int page, int size, String authorGender);
+                                     int page, int size, String authorGender, Double minRating);
 
     /** 库里是否一行都没有（跨全部榜单分区），给前端区分“空库”与“空分区”。 */
     long countAllNovels();
@@ -50,28 +51,41 @@ public interface NovelService {
     void setWatched(String bookId, boolean watched);
 
     /**
-     * 写入免费引擎（GLM）的判定结论，按 bookId 作用于全部行。
+     * 写入免费引擎的判定结论，按 bookId 作用于全部行。
+     *
+     * <p>主表是**聚合口径**：方法内部按明细重算（任一「引擎 × 型号」的有效结论为 AI 即 2），
+     * 参数里的单次结论只在明细缺失时兜底。</p>
      *
      * @param bookId  书籍 ID
-     * @param aiFlag  判定标记：1=非 AI 2=AI 3=疑似 AI
-     * @param aiScore AI 概率（0–100）
+     * @param aiFlag  本次判定标记：1=非 AI 2=AI 3=疑似 AI
+     * @param aiScore 本次 AI 概率（0–100）
      * @param engine  产出结论的引擎标识
      */
     void applyFreeVerdict(String bookId, int aiFlag, double aiScore, String engine);
 
     /**
-     * 写入手动逐章校验的结论，按 bookId 作用于全部行。各引擎共用此入口，
-     * engine 只决定命中时覆盖到主表的 ai_engine 字段。
+     * 写入手动逐章校验的结论，按 bookId 作用于全部行。各引擎共用此入口；
+     * 主表仍按明细聚合——命中自然变 AI 且不被后续非 AI 覆盖，未命中只推进 zq_* 进度。
      *
      * @param bookId          书籍 ID
      * @param engine          产出本次结论的引擎标识（glm-4-flash / qianfan-ernie-speed / qwen2.5-7b / 自定义 id）
      * @param manualFlag      手动校验标记：0=进行中 1=已查章节均非 AI 2=命中 AI
      * @param checkedChapters 已校验章节数
      * @param manualScore     本章 AI 风险占比（0–100）
-     * @param aiHit           是否命中 AI；命中时同步把 ai_flag 覆盖为 2
+     * @param aiHit           是否命中 AI；命中经明细聚合成为主表 2
      */
     void applyManualVerifyVerdict(String bookId, String engine, int manualFlag, int checkedChapters,
                                   double manualScore, boolean aiHit);
+
+    /**
+     * 启动回填：按明细重算所有已判书籍的主表综合结论。
+     *
+     * <p>主表口径在 2026-10-25 从「最后写入」改成「按型号聚合」，历史行的值不会自动变；
+     * 启动时跑一次幂等重算，把旧口径写的 40 本 AI / 80 本非 AI 纠正到聚合口径。</p>
+     *
+     * @return 重算成功的书数（明细在、但已不在榜的书会被跳过）
+     */
+    int recomputeAiAggregates();
 
     void deleteNovelsByCategoryCode(String categoryCode);
 

@@ -27,7 +27,7 @@ shots-before/
 shots-after/
 shots-dark/
 shots/
-scripts/_*.mjs
+scripts/_*
 
 ### 前端截图依赖（npm 安装，不入库）与并行工具的本地目录
 node_modules/

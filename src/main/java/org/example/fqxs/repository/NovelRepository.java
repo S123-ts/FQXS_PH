@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -46,7 +47,8 @@ public interface NovelRepository extends JpaRepository<Novel, Long> {
             + "AND (:authorGender = '' "
             + "     OR (:authorGender = 'male' AND n.authorGender = 1) "
             + "     OR (:authorGender = 'female' AND n.authorGender = 0) "
-            + "     OR (:authorGender = 'unknown' AND n.authorGender IS NULL))")
+            + "     OR (:authorGender = 'unknown' AND n.authorGender IS NULL)) "
+            + "AND (:minRating IS NULL OR (n.rating IS NOT NULL AND n.rating >= :minRating))")
     Page<Novel> pageAllBooksByCodes(@Param("codes") Collection<String> codes,
                                     @Param("rankType") String rankType,
                                     @Param("blockedOnly") boolean blockedOnly,
@@ -55,6 +57,7 @@ public interface NovelRepository extends JpaRepository<Novel, Long> {
                                     @Param("minWan") Double minWan,
                                     @Param("maxWan") Double maxWan,
                                     @Param("authorGender") String authorGender,
+                                    @Param("minRating") Double minRating,
                                     Pageable pageable);
 
     /** 与 {@link #pageAllBooksByCodes} 同条件，但不限分类（排查接口的“当前榜单全部分区”）。 */
@@ -67,7 +70,8 @@ public interface NovelRepository extends JpaRepository<Novel, Long> {
             + "AND (:authorGender = '' "
             + "     OR (:authorGender = 'male' AND n.authorGender = 1) "
             + "     OR (:authorGender = 'female' AND n.authorGender = 0) "
-            + "     OR (:authorGender = 'unknown' AND n.authorGender IS NULL))")
+            + "     OR (:authorGender = 'unknown' AND n.authorGender IS NULL)) "
+            + "AND (:minRating IS NULL OR (n.rating IS NOT NULL AND n.rating >= :minRating))")
     Page<Novel> pageAllBooks(@Param("rankType") String rankType,
                              @Param("blockedOnly") boolean blockedOnly,
                              @Param("watchedOnly") boolean watchedOnly,
@@ -75,6 +79,7 @@ public interface NovelRepository extends JpaRepository<Novel, Long> {
                              @Param("minWan") Double minWan,
                              @Param("maxWan") Double maxWan,
                              @Param("authorGender") String authorGender,
+                             @Param("minRating") Double minRating,
                              Pageable pageable);
 
     /**
@@ -87,6 +92,30 @@ public interface NovelRepository extends JpaRepository<Novel, Long> {
             + "           AND n2.isBlocked = false AND n2.bookId IS NOT NULL GROUP BY n2.bookId) "
             + "ORDER BY n.readCountRaw DESC")
     List<Novel> findMetaTopBooks(@Param("rankType") String rankType, Pageable pageable);
+
+    /**
+     * 启动后台补齐的全库待补清单（按书去重、按热度降序）：性别没取过，或评分没取过/已过刷新周期。
+     * 与 {@link #findMetaTopBooks} 的区别是不限前 N——一次只返回 bookId 列表，
+     * 逐本请求的节拍由调用方控制，绝不一次拉全库实体。
+     *
+     * <p>判据从 novel_rank 换到 author_meta（V20 起作者元数据独立成表）：只看榜单行的话，
+     * 书掉榜被清理、重新上榜时会退回「待补」，已经取到过的数据又要花一次额度重取。
+     * 连表之后「这本书在榜上」和「这本书还没取过数」两个条件才各自成立。</p>
+     *
+     * <p>原生 SQL：JPQL 不能在没有实体关联的情况下 LEFT JOIN 另一张表。
+     * 排序沿用页面「全部」总榜的口径（热度降序），补齐顺序与用户看到的顺序一致。</p>
+     *
+     * @param genderFilter 频道过滤：-1 不过滤 / 1 只男频 / 0 只女频（自用只拉男频时额度全给男频）
+     */
+    @Query(value = "SELECT n.book_id FROM novel_rank n "
+            + "LEFT JOIN author_meta a ON a.book_id = n.book_id "
+            + "WHERE n.is_blocked = FALSE AND n.book_id IS NOT NULL "
+            + "AND (:genderFilter < 0 OR n.gender = :genderFilter) "
+            + "AND (a.book_id IS NULL OR a.gender_checked_time IS NULL "
+            + "     OR a.rating_checked_time IS NULL OR a.rating_checked_time < :staleBefore) "
+            + "GROUP BY n.book_id ORDER BY MAX(n.read_count_raw) DESC", nativeQuery = true)
+    List<String> findBookIdsNeedingMeta(@Param("staleBefore") LocalDateTime staleBefore,
+                                        @Param("genderFilter") int genderFilter);
 
     /**
      * 字数数值列的回填：没有数值的行，以及解析结果为 0 的行（解析规则修正后要重算）。

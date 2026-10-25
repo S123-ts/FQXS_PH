@@ -1,26 +1,28 @@
 @echo off
 chcp 65001 >nul
 :: ============================================================
-:: 免费 AI 判定密钥模板
+:: Local AI keys template (FQXS)
 ::
-:: 用法：把本文件复制为同目录下的 ai-keys.bat，填入真实 Key 后保存。
-::       start.bat 会在启动前自动 call 它；ai-keys.bat 已被 .gitignore 忽略。
+:: Usage: copy this file to ai-keys.bat (same folder, gitignored),
+::        replace the placeholders with real keys, then run start.bat.
+::        start.bat calls ai-keys.bat before launch.
 ::
-:: 三个 Key 互相独立，配任意一个即可用对应引擎；都不配则榜单功能照常，
-:: 只是「AI引擎」下拉会显示“未配置密钥”，校验按钮点了会提示缺哪个 Key。
+:: Each key is independent; configure any one to enable that engine.
+:: With none configured the rank features still work.
 ::
-:: 注意：不要写 set "GLM_API_KEY=..." 以外的格式；用 if not defined 是为了
-::       不覆盖你已经在系统环境变量里配好的值。
+:: IMPORTANT: keep this file ASCII-only. cmd parses .bat files with the
+:: system code page (GBK); UTF-8 Chinese text can swallow the following
+:: lines and silently disable the `if not defined` assignments.
 :: ============================================================
 
-:: 智谱 GLM-4-Flash（永久免费、30 并发）：https://open.bigmodel.cn/
-:: 控制台 → 「API 密钥」→ 复制形如 xxxxxxxx.yyyyyyyy 的 Key
-if not defined GLM_API_KEY set "GLM_API_KEY=在此填写智谱Key"
+:: Zhipu GLM-4-Flash (free): https://open.bigmodel.cn/
+:: Console -> API Keys -> copy a key like xxxxxxxx.yyyyyyyy
+if not defined GLM_API_KEY set "GLM_API_KEY=<your-glm-key>"
 
-:: 百度千帆 ERNIE-Speed（需先在控制台开通在线服务）：
-:: https://console.bce.baidu.com/qianfan/ais/console/apiKey → API Key 形如 bce-v3/ALTAK-...
-if not defined QIANFAN_API_KEY set "QIANFAN_API_KEY=在此填写千帆Key"
+:: Baidu Qianfan ERNIE-Speed (enable the online service first):
+:: https://console.bce.baidu.com/qianfan/ais/console/apiKey -> key like bce-v3/ALTAK-...
+if not defined QIANFAN_API_KEY set "QIANFAN_API_KEY=<your-qianfan-key>"
 
-:: 硅基流动 Qwen2.5-7B-Instruct（免费档）：https://cloud.siliconflow.cn/
-:: 「API 密钥」→ 新建，Key 形如 sk-xxxxxxxx
-if not defined QWEN_API_KEY set "QWEN_API_KEY=在此填写硅基流动Key"
+:: SiliconFlow Qwen2.5-7B-Instruct (free tier): https://cloud.siliconflow.cn/
+:: API Keys -> create -> key like sk-xxxxxxxx
+if not defined QWEN_API_KEY set "QWEN_API_KEY=<your-qwen-key>"

@@ -51,8 +51,11 @@ public class FanqieConfig {
     }
 
     /** 全量抓取每分类的条数：上游 total_num 恒为 100，抓满才有资格触发掉榜清理。 */
+    /** 全量抓取每个分类抓多少本：2026-10-25 用户拍板 70（上游 total_num 仍是 100）。 */
+    public static final int FULL_FETCH_SIZE = 70;
+
     public static int wholeListSize(Integer requested) {
-        return requested == null ? MAX_PAGE_SIZE : clampSize(requested);
+        return requested == null ? FULL_FETCH_SIZE : clampSize(requested);
     }
 
     /**

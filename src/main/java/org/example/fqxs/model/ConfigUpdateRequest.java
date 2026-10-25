@@ -19,4 +19,8 @@ public class ConfigUpdateRequest {
 
     /** 展示分类 code 列表；空数组=清空展示分类。 */
     private List<String> displayCategories;
+
+    /** 拉取频道：all=男女频都拉 / male=只拉男频 / female=只拉女频。null 表示不改。 */
+    @Pattern(regexp = "all|male|female", message = "只支持 all / male / female")
+    private String fetchGender;
 }

@@ -8,6 +8,7 @@ import org.example.fqxs.entity.AiEngine;
 import org.example.fqxs.entity.NovelAiVerdict;
 import org.example.fqxs.entity.NovelAiVerdictLog;
 import org.example.fqxs.exception.CrawlException;
+import org.example.fqxs.logging.BookLogContext;
 import org.example.fqxs.model.AiVerdict;
 import org.example.fqxs.model.SampleSpec;
 import org.example.fqxs.repository.NovelAiVerdictRepository;
@@ -24,8 +25,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
@@ -48,6 +52,9 @@ public class AiDetectServiceImpl implements AiDetectService {
 
     /** 单条错误消息的截断长度。 */
     private static final int MAX_ERROR_LENGTH = 80;
+
+    /** 正在判定中的书：两个标签页同时点初筛时跳过重复那份，避免同一本重复消耗额度。 */
+    private final Set<String> inFlightSweeps = ConcurrentHashMap.newKeySet();
 
     private final NovelRepository novelRepository;
     private final NovelAiVerdictRepository verdictRepository;
@@ -74,6 +81,14 @@ public class AiDetectServiceImpl implements AiDetectService {
     @Override
     public FreeDetectResult detectFree(String bookId, String engine, boolean force, SampleSpec sample,
                                        boolean rerun) {
+        // 圈定这本书：取样、模型调用、落库期间的日志都归到 bookId 名下（app_log.book_id）
+        try (BookLogContext ignored = BookLogContext.open(bookId)) {
+            return detectFreeInternal(bookId, engine, force, sample, rerun);
+        }
+    }
+
+    private FreeDetectResult detectFreeInternal(String bookId, String engine, boolean force,
+                                                SampleSpec sample, boolean rerun) {
         ensureEnabled();
         // engine 为空或 random 时随机挑一个可用引擎，并避开这本书已判过的引擎。
         // 可用性判定（启用/未暂停/兼容/有 Key）只由 router 负责，这里不再重复校验
@@ -88,7 +103,10 @@ public class AiDetectServiceImpl implements AiDetectService {
             NovelAiVerdict existing = verdictRepository
                     .findByBookIdAndEngineAndModelIn(bookId, actualEngine, models).stream()
                     .filter(this::isInitialSweepVerdict)
-                    .findFirst()
+                    // 多型号都判过时取最新一条：仓储没有排序，不能把 findFirst 的偶然顺序当结论
+                    .max(Comparator.comparing(NovelAiVerdict::getCheckedTime,
+                                    Comparator.nullsFirst(Comparator.naturalOrder()))
+                            .thenComparing(NovelAiVerdict::getId))
                     .orElse(null);
             if (existing != null) {
                 double score = existing.getAiScore() == null ? 0 : existing.getAiScore();
@@ -240,6 +258,11 @@ public class AiDetectServiceImpl implements AiDetectService {
     private void judgeOne(String bookId, String engine, SampleSpec sample, AtomicInteger processed,
                           AtomicInteger failed, AtomicInteger aiCount, AtomicInteger suspectCount,
                           List<String> errors) {
+        // 幂等守卫是"判之前读库"，两个并发初筛会同时通过；这里用进程内占位把重复那份挡掉
+        if (!inFlightSweeps.add(bookId)) {
+            log.info("跳过重复初筛: bookId={} 正在另一批判定中", bookId);
+            return;
+        }
         try {
             FreeDetectResult result = detectFree(bookId, engine, false, sample);
             processed.incrementAndGet();
@@ -259,12 +282,17 @@ public class AiDetectServiceImpl implements AiDetectService {
             }
             log.warn("免费初筛失败: bookId={}, engine={}, 原因={}", bookId, engine,
                     runtimeException.getMessage());
+        } finally {
+            inFlightSweeps.remove(bookId);
         }
     }
 
     @Override
     public VerifyStepResult stepVerify(String bookId, String engine, SampleSpec sample) {
-        return verifyService.stepVerify(bookId, engine, sample);
+        // 逐章校验的日志也归到这本书名下
+        try (BookLogContext ignored = BookLogContext.open(bookId)) {
+            return verifyService.stepVerify(bookId, engine, sample);
+        }
     }
 
     @Override
@@ -284,7 +312,7 @@ public class AiDetectServiceImpl implements AiDetectService {
 
     /** 某本书已经判过的引擎（随机路由据此避开重复消耗）。 */
     private List<String> judgedEngines(String bookId) {
-        return verdictRepository.findByBookIdIn(List.of(bookId)).stream()
+        return verdictRepository.findByBookIdInOrderByCheckedTimeDescIdDesc(List.of(bookId)).stream()
                 .map(NovelAiVerdict::getEngine)
                 .distinct()
                 .toList();

@@ -6,6 +6,7 @@ import org.example.fqxs.client.ChapterClient;
 import org.example.fqxs.config.AiDetectConfig;
 import org.example.fqxs.entity.NovelChapter;
 import org.example.fqxs.exception.CrawlException;
+import org.example.fqxs.logging.BookLogContext;
 import org.example.fqxs.model.ChapterSample;
 import org.example.fqxs.repository.NovelChapterRepository;
 import org.example.fqxs.util.ChapterTextCleaner;
@@ -59,21 +60,24 @@ public class ChapterContentService {
      */
     public ChapterSample getOrFetch(String bookId, String itemId, int chapterIndex,
                                     Runnable beforeUpstream) {
-        Optional<ChapterSample> cached = findCached(itemId);
-        if (cached.isPresent()) {
-            return cached.get();
+        // 圈定这本书：回源正文（含第三方 /content 只有 item_id 的场景）的日志要能归到它名下
+        try (BookLogContext ignored = BookLogContext.open(bookId)) {
+            Optional<ChapterSample> cached = findCached(itemId);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+            if (beforeUpstream != null) {
+                beforeUpstream.run();
+            }
+            ChapterSample fetched = chapterClient.fetchChapter(itemId);
+            ChapterTextCleaner.Cleaned cleaned = chapterTextCleaner.clean(fetched.text(), fetched.title());
+            if (cleaned.isEmpty()) {
+                // 空正文先前已被 ChapterClient 拦成异常，这里再兜一层：清洗后为空同样不能用
+                throw new CrawlException("章节正文为空（清洗后）: itemId=" + itemId);
+            }
+            store(bookId, itemId, chapterIndex, fetched.title(), cleaned);
+            return new ChapterSample(itemId, fetched.title(), cleaned.text(), cleaned.chars());
         }
-        if (beforeUpstream != null) {
-            beforeUpstream.run();
-        }
-        ChapterSample fetched = chapterClient.fetchChapter(itemId);
-        ChapterTextCleaner.Cleaned cleaned = chapterTextCleaner.clean(fetched.text(), fetched.title());
-        if (cleaned.isEmpty()) {
-            // 空正文先前已被 ChapterClient 拦成异常，这里再兜一层：清洗后为空同样不能用
-            throw new CrawlException("章节正文为空（清洗后）: itemId=" + itemId);
-        }
-        store(bookId, itemId, chapterIndex, fetched.title(), cleaned);
-        return new ChapterSample(itemId, fetched.title(), cleaned.text(), cleaned.chars());
     }
 
     /**

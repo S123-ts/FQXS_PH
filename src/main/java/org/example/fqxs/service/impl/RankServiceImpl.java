@@ -72,7 +72,7 @@ public class RankServiceImpl implements RankService {
             JsonNode root = apiClient.fetchRankUrl(category.getGender(), category.getSubcategoryId(),
                     moldOf(rankType), defaults.getPage(), safeSize);
             List<NovelInfo> novels = toNovelInfos(category, root, defaults.getPage(), safeSize);
-            boolean complete = coversWholeList(root, defaults.getPage(), novels.size());
+            boolean complete = coversWholeList(root, defaults.getPage(), novels.size(), safeSize, false);
             return new RankListResult(novels, persist(novels, category, rankType, complete));
         } finally {
             fullCrawlLock.unlock();
@@ -82,7 +82,7 @@ public class RankServiceImpl implements RankService {
     @Override
     public List<NovelInfo> getAllRankList(int size) {
         List<NovelInfo> all = new ArrayList<>();
-        for (Crawled crawled : crawlEveryCategory(size)) {
+        for (Crawled crawled : crawlEveryCategory(size, false)) {
             if (crawled.outcome().error() == null) {
                 all.addAll(crawled.outcome().novels());
             }
@@ -93,7 +93,7 @@ public class RankServiceImpl implements RankService {
     @Override
     public List<CategoryCrawlResult> crawlAllCategories(int size) {
         List<CategoryCrawlResult> results = new ArrayList<>();
-        for (Crawled crawled : crawlEveryCategory(size)) {
+        for (Crawled crawled : crawlEveryCategory(size, true)) {
             Outcome outcome = crawled.outcome();
             CategoryCatalog category = crawled.category();
             results.add(new CategoryCrawlResult(
@@ -109,8 +109,17 @@ public class RankServiceImpl implements RankService {
     }
 
     /** 只遍历展示中的分类：用户配置显示哪些就抓哪些，“一键获取”抓的是页面看得到的榜。 */
-    private List<Crawled> crawlEveryCategory(int size) {
+    private List<Crawled> crawlEveryCategory(int size, boolean fullFetch) {
         List<CategoryCatalog> displayed = configService.getDisplayedCategories();
+        // 拉取频道限制（fetch_gender）：自用只拉男频时，女频分类既不覆盖也不触发掉榜清理
+        int genderFilter = ConfigService.genderCodeOf(configService.getFetchGender());
+        List<CategoryCatalog> targets = genderFilter < 0
+                ? displayed
+                : displayed.stream().filter(category -> category.getGender() == genderFilter).toList();
+        if (targets.size() < displayed.size()) {
+            log.info("拉取频道={}，跳过 {} 个不匹配分类，本次拉取 {} 个",
+                    configService.getFetchGender(), displayed.size() - targets.size(), targets.size());
+        }
         if (!fullCrawlLock.tryLock()) {
             throw new CrawlException("已有全量爬取任务正在执行，请稍后再试");
         }
@@ -118,8 +127,8 @@ public class RankServiceImpl implements RankService {
             // 整批锁定同一个榜单类型：批量进行中用户切榜，不让同批前后分类来自不同榜单
             String rankType = configService.getActiveRankType();
             List<Crawled> crawled = new ArrayList<>();
-            for (CategoryCatalog category : displayed) {
-                crawled.add(new Crawled(category, crawlCategory(category, 1, size, rankType)));
+            for (CategoryCatalog category : targets) {
+                crawled.add(new Crawled(category, crawlCategory(category, 1, size, rankType, fullFetch)));
                 rest();
             }
             int failed = 0;
@@ -142,10 +151,11 @@ public class RankServiceImpl implements RankService {
     /** 单分类抓取：网络/写库异常都记进 Outcome，批量任务因此能跑完剩余分类。 */
     private Outcome crawlCategory(CategoryCatalog category, int page, int size) {
         // 单分类抓取每次读当前生效的榜单类型；批量路径由 crawlEveryCategory 锁定后传入
-        return crawlCategory(category, page, size, configService.getActiveRankType());
+        return crawlCategory(category, page, size, configService.getActiveRankType(), false);
     }
 
-    private Outcome crawlCategory(CategoryCatalog category, int page, int size, String rankType) {
+    private Outcome crawlCategory(CategoryCatalog category, int page, int size, String rankType,
+                                  boolean fullFetch) {
         if (!acquireCrawlLock()) {
             return new Outcome(List.of(), "上游抓取正被其他任务占用，请稍后重试", false);
         }
@@ -155,7 +165,7 @@ public class RankServiceImpl implements RankService {
             JsonNode root = apiClient.fetchRankUrl(category.getGender(), category.getSubcategoryId(),
                     moldOf(rankType), safePage, safeSize);
             List<NovelInfo> novels = toNovelInfos(category, root, safePage, safeSize);
-            boolean complete = coversWholeList(root, safePage, novels.size());
+            boolean complete = coversWholeList(root, safePage, novels.size(), safeSize, fullFetch);
             boolean saved = persist(novels, category, rankType, complete);
             return new Outcome(novels, null, saved);
         } catch (CrawlException e) {
@@ -244,12 +254,19 @@ public class RankServiceImpl implements RankService {
      * 否则“每页显示 30”的一页会把 31~100 名当成掉榜数据删掉。
      * 四种 (gender, rankMold) 组合的 total_num 恒为 100，该判定对男女频/新旧榜通用。
      */
-    private boolean coversWholeList(JsonNode root, int page, int fetched) {
+    private boolean coversWholeList(JsonNode root, int page, int fetched, int requestedSize,
+                                    boolean fullFetch) {
         if (page != 1 || fetched <= 0) {
             return false;
         }
         long total = NovelTextParser.firstLong(root.path("data"), "total_num", "totalNum");
-        return total > 0 && fetched >= total;
+        if (total <= 0) {
+            return false;
+        }
+        // 全量抓取按「本次要抓多少」判完整：70 本就是用户定义的整榜，掉榜行要清掉；
+        // 单页抓取仍按上游 total_num（100）判，避免一页 30 条把 31–100 名当掉榜删掉
+        long target = fullFetch ? Math.min(total, requestedSize) : total;
+        return fetched >= target;
     }
 
     private void rest() {

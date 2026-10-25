@@ -21,7 +21,17 @@ public interface NovelAiVerdictRepository extends JpaRepository<NovelAiVerdict, 
                                                          Collection<String> models);
 
     /** 页面渲染用：按当前视图的书批量取全部引擎结论，一次查询不逐行打。 */
-    List<NovelAiVerdict> findByBookIdIn(Collection<String> bookIds);
+    /**
+     * 批量取多本书的全部结论行。
+     *
+     * <p>必须带排序：前端按「逐章命中优先、否则最新」选行，时间相同的行不能靠数据库返回顺序决定。
+     * 新的在前，同刻按 id 倒序（后写入的优先）。</p>
+     */
+    List<NovelAiVerdict> findByBookIdInOrderByCheckedTimeDescIdDesc(Collection<String> bookIds);
+
+    /** 启动回填用：所有出现过明细结论的 bookId（主表口径变更后按它逐本重算）。 */
+    @Query("SELECT DISTINCT v.bookId FROM NovelAiVerdict v")
+    List<String> findDistinctBookIds();
 
     /** 引擎维度的已判书数（按 bookId 去重），给状态面板展示每个 API 覆盖了多少本。 */
     long countByEngineAndAiFlag(String engine, int aiFlag);

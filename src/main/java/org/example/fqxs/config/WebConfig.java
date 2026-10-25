@@ -1,6 +1,7 @@
 package org.example.fqxs.config;
 
 import lombok.RequiredArgsConstructor;
+import org.example.fqxs.logging.ApiLogInterceptor;
 import org.example.fqxs.web.AdminTokenInterceptor;
 import org.example.fqxs.web.BookSourceTokenInterceptor;
 import org.example.fqxs.web.LoginInterceptor;
@@ -27,10 +28,14 @@ public class WebConfig implements WebMvcConfigurer {
     private final RankWriteInterceptor rankWriteInterceptor;
     private final LoginInterceptor loginInterceptor;
     private final BookSourceTokenInterceptor bookSourceTokenInterceptor;
+    private final ApiLogInterceptor apiLogInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        // 登录门排第一：未登录的请求在进入其它拦截器之前就被挡下，
+        // API 日志必须排在最前：Spring 只回调「已成功执行 preHandle」的拦截器的 afterCompletion，
+        // 排在登录门后面就漏掉所有 401——而扫接口的请求正是要被记下来的那批
+        registry.addInterceptor(apiLogInterceptor).addPathPatterns("/api/**");
+        // 登录门排第二：未登录的请求在进入其它拦截器之前就被挡下，
         // 免得「没登录」被报成「写令牌不对」，把排查方向带偏
         registry.addInterceptor(loginInterceptor)
                 .addPathPatterns("/**")

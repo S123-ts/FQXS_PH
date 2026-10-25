@@ -75,7 +75,25 @@ public class AiDetectConfig {
     private long bookMetaIntervalMillis = 2000;
 
     /** 评分刷新周期（天）。 */
-    private int ratingRefreshDays = 10;
+    private int ratingRefreshDays = 5;
+
+    /**
+     * 启动后台补齐开关：应用起来后开一个守护线程，按 {@link #bookMetaBackfillPerHour}
+     * 的节拍（默认 60 = 一分钟一本）把全库缺性别/缺评分的书补完。
+     * 关掉只留页面上的手动「补作者信息」。
+     */
+    private boolean bookMetaBackfillEnabled = true;
+
+    /**
+     * 后台补齐节拍：每小时补几本（默认 60 = 一分钟一本）。
+     *
+     * <p>这一个数同时决定两件事——每本之间的间隔 = 3600000 / perHour；每一轮推进的本数 = perHour。
+     * 一轮正好铺满一小时，轮末重取待补清单，新上榜的书与评分到期的书靠这次重取轮进来。</p>
+     *
+     * <p>2026-10-25 晚按用户要求从批次制（{@code book-meta-backfill-batch-size} 随机 5 本 +
+     * {@code book-meta-backfill-pause-minutes} 停 3 分钟）改回线性节拍。</p>
+     */
+    private int bookMetaBackfillPerHour = 60;
 
     /** 同一引擎连续失败多少次就自动停用（判定成功会清零计数，所以这里数的是"连着"）。 */
     private int faultSuspendThreshold = 3;

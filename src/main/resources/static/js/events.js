@@ -5,7 +5,7 @@
    动态元素一律靠 data-* + 事件委托识别
    ============================================================ */
 
-import { state, saveShownPreference } from './state.js';
+import { state, saveShownPreference, saveMinRating } from './state.js';
 import { getDisplayedCategories } from './meta.js';
 import {
     renderNav, updateCheckAllState, updateDropdownLabel,
@@ -14,7 +14,7 @@ import {
 import {
     loadData, fetchAllData, goToPage, jumpToPageFromInput, onFilterChange,
     onPageSizeChange, setBlocked, setWatched, switchCategory, saveRankType, saveDisplayCategories,
-    runBatchBlock, enrichBookMeta
+    saveFetchGender, runBatchBlock, enrichBookMeta
 } from './data.js';
 import { runAiSweep, runSelectionVerdict, runBadgeRerun, runVerifyBatch } from './ai_actions.js';
 import {
@@ -331,6 +331,31 @@ export function bindEvents() {
         }
     });
 
+    // 拉取频道分段单选：只改批量拉取范围，与当前展示无关
+    document.getElementById('fetchGenderGroup').addEventListener('change', (e) => {
+        const input = e.target;
+        if (input instanceof HTMLInputElement && input.name === 'fetchGender') {
+            saveFetchGender(input.value);
+        }
+    });
+
+    // 评分下限：change（回车/失焦）时归一化并记住，留空表示不筛
+    document.getElementById('filterMinRating').addEventListener('change', (e) => {
+        const input = e.target;
+        if (!(input instanceof HTMLInputElement)) return;
+        const raw = input.value.trim();
+        let normalized = '';
+        if (raw !== '') {
+            const value = Number(raw);
+            // 非数字/越界一律落回默认 9.0，避免把空条件或 999 发给后端
+            normalized = Number.isFinite(value)
+                ? String(Math.min(10, Math.max(0, Math.round(value * 10) / 10)))
+                : '9.0';
+        }
+        input.value = normalized;
+        saveMinRating(normalized);
+        onFilterChange();
+    });
     document.getElementById('filterWord').addEventListener('change', onFilterChange);
     document.getElementById('filterStatus').addEventListener('change', onFilterChange);
     document.getElementById('filterAuthor').addEventListener('change', onFilterChange);

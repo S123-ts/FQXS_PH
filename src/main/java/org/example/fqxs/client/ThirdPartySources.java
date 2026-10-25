@@ -8,6 +8,13 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 import org.example.fqxs.config.AiDetectConfig;
 import org.example.fqxs.exception.CrawlException;
+import org.example.fqxs.exception.ItemUnavailableException;
+import org.example.fqxs.exception.LineCoolingException;
+import org.example.fqxs.logging.AppLogEntry;
+import org.example.fqxs.logging.BookLogContext;
+import org.example.fqxs.logging.LogBuffer;
+import org.example.fqxs.logging.ThirdPartyLogEntry;
+import org.example.fqxs.util.DateUtil;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -30,6 +37,13 @@ import java.util.function.Function;
  *
  * <p>任何失败只冷却出错的那一条，随后自动换下一条；全部冷却时 {@link #hasUsable()} 返回 false，
  * 上层据此明确报错而不是静默降级。</p>
+ *
+ * <p>唯一例外是 {@link ItemUnavailableException}（书已下架 / 正文不存在）：这说明线路是好的，
+ * 只是这一本书没有数据。它直接上抛、不冷却任何线路——否则一本坏书就能让整条共享线路休息 5 分钟。</p>
+ *
+ * <p><b>日志</b>：每次线路尝试（不是每次 fetch）都往 {@code third_party_log} 落一行，
+ * 换线重试时一次抽取会产出多行。这样「哪条线路今天挂了几次、失败形态是什么」能直接数出来。
+ * 埋点不改变任何控制流：状态码与字节数先攒在 {@link Attempt} 里，成功失败都在 finally 前记一次。</p>
  */
 @Slf4j
 @Component
@@ -91,20 +105,79 @@ public class ThirdPartySources {
      */
     public <T> T fetch(String path, String paramName, String paramValue, String scene,
                        Function<String, T> parser) {
+        return fetch(path, paramName, paramValue, scene, null, parser);
+    }
+
+    /**
+     * 同上，额外带上书 id 以便日志归到那本书名下。
+     *
+     * @param bookId 书 id；调用方知道就传，不知道（如只有 item_id 的正文请求）传 null，
+     *               这里回退到 {@link BookLogContext#currentBookId()}（调用链用 MDC 圈定过的话）
+     */
+    public <T> T fetch(String path, String paramName, String paramValue, String scene, String bookId,
+                       Function<String, T> parser) {
         List<String> candidates = usable();
         if (candidates.isEmpty()) {
-            throw new CrawlException(scene + "不可用：第三方线路全部在冷却中或已关闭");
+            throw new LineCoolingException(scene + "不可用：第三方线路全部在冷却中或已关闭");
         }
+        String effectiveBookId = bookId == null || bookId.isBlank()
+                ? BookLogContext.currentBookId()
+                : bookId;
         CrawlException lastFailure = null;
         for (String base : candidates) {
+            long start = System.currentTimeMillis();
+            Attempt attempt = new Attempt();
             try {
-                return parser.apply(execute(base, path, paramName, paramValue, scene));
+                String body = execute(base, path, paramName, paramValue, scene, attempt);
+                T result = parser.apply(body);
+                record(base, path, scene, paramName, paramValue, effectiveBookId,
+                        attempt, ThirdPartyLogEntry.OK, null, start);
+                return result;
+            } catch (ItemUnavailableException itemFailure) {
+                // 书的错不是线路的错：不冷却、不换线（换一条也是同一本书）
+                record(base, path, scene, paramName, paramValue, effectiveBookId,
+                        attempt, ThirdPartyLogEntry.ITEM_UNAVAILABLE, itemFailure.getMessage(), start);
+                throw itemFailure;
             } catch (CrawlException failure) {
+                // execute 已经成功但解析失败时，attempt.outcome 还是 OK，这里改判 PARSE_ERROR
+                String outcome = ThirdPartyLogEntry.OK.equals(attempt.outcome)
+                        ? ThirdPartyLogEntry.PARSE_ERROR
+                        : attempt.outcome;
+                record(base, path, scene, paramName, paramValue, effectiveBookId,
+                        attempt, outcome, failure.getMessage(), start);
                 lastFailure = failure;
                 markUnavailable(base, failure.getMessage());
             }
         }
         throw lastFailure;
+    }
+
+    /**
+     * 记一次线路尝试并落 {@code third_party_log}。
+     *
+     * @param attempt 请求过程中攒下的状态码 / 字节数
+     * @param outcome 最终判定（OK / HTTP_ERROR / EMPTY / IO_ERROR / PARSE_ERROR / ITEM_UNAVAILABLE）
+     * @param error   失败原因，成功传 null
+     */
+    private void record(String base, String path, String scene, String paramName, String paramValue,
+                        String bookId, Attempt attempt, String outcome, String error, long start) {
+        try {
+            LogBuffer.offerThirdParty(new ThirdPartyLogEntry(
+                    DateUtil.now(),
+                    AppLogEntry.truncate(base, ThirdPartyLogEntry.LINE_MAX),
+                    AppLogEntry.truncate(path, ThirdPartyLogEntry.PATH_MAX),
+                    AppLogEntry.truncate(scene, ThirdPartyLogEntry.SCENE_MAX),
+                    AppLogEntry.truncate(paramName, ThirdPartyLogEntry.PARAM_NAME_MAX),
+                    AppLogEntry.truncate(paramValue, ThirdPartyLogEntry.PARAM_VALUE_MAX),
+                    AppLogEntry.truncate(bookId, ThirdPartyLogEntry.BOOK_ID_MAX),
+                    attempt.status,
+                    attempt.bytes,
+                    (int) Math.min(Integer.MAX_VALUE, System.currentTimeMillis() - start),
+                    outcome,
+                    AppLogEntry.truncate(error, ThirdPartyLogEntry.ERROR_MAX)));
+        } catch (RuntimeException ignored) {
+            // 埋点失败不能影响抽取
+        }
     }
 
     /**
@@ -130,9 +203,11 @@ public class ThirdPartySources {
      * @param paramName  参数名
      * @param paramValue 参数值
      * @param scene      场景名
+     * @param attempt    出参：把状态码、字节数与失败形态带回去给日志
      * @return 响应体文本
      */
-    private String execute(String base, String path, String paramName, String paramValue, String scene) {
+    private String execute(String base, String path, String paramName, String paramValue, String scene,
+                           Attempt attempt) {
         String url;
         try {
             url = HttpUrl.get(base + path).newBuilder()
@@ -140,6 +215,7 @@ public class ThirdPartySources {
                     .build()
                     .toString();
         } catch (IllegalArgumentException badUrl) {
+            attempt.outcome = ThirdPartyLogEntry.IO_ERROR;
             throw new CrawlException(scene + "线路地址非法: " + base, badUrl);
         }
         Request request = new Request.Builder()
@@ -149,16 +225,22 @@ public class ThirdPartySources {
                 .header("Accept-Language", "zh-CN,zh;q=0.9")
                 .build();
         try (Response response = httpClient.newCall(request).execute()) {
+            attempt.status = response.code();
             if (!response.isSuccessful()) {
+                attempt.outcome = ThirdPartyLogEntry.HTTP_ERROR;
                 throw new CrawlException(scene + "抓取失败: 上游返回 " + response.code());
             }
             ResponseBody responseBody = response.body();
-            String body = responseBody == null ? "" : new String(responseBody.bytes(), StandardCharsets.UTF_8);
+            byte[] raw = responseBody == null ? new byte[0] : responseBody.bytes();
+            attempt.bytes = raw.length;
+            String body = new String(raw, StandardCharsets.UTF_8);
             if (body.isBlank()) {
+                attempt.outcome = ThirdPartyLogEntry.EMPTY;
                 throw new CrawlException(scene + "返回空响应");
             }
             return body;
         } catch (IOException ioException) {
+            attempt.outcome = ThirdPartyLogEntry.IO_ERROR;
             throw new CrawlException(scene + "抓取失败: " + ioException.getMessage(), ioException);
         }
     }
@@ -166,5 +248,17 @@ public class ThirdPartySources {
     private static String abbreviate(String text) {
         String flat = text == null ? "" : text.replaceAll("\\s+", " ");
         return flat.length() > 90 ? flat.substring(0, 90) + "…" : flat;
+    }
+
+    /** 一次线路尝试的观测值：由 {@link #execute} 填，供日志记录。 */
+    private static final class Attempt {
+        /** HTTP 状态码；连接失败时为 null。 */
+        Integer status;
+
+        /** 响应体字节数；没读到响应时为 null。 */
+        Integer bytes;
+
+        /** 失败形态；成功保持 {@link ThirdPartyLogEntry#OK}。 */
+        String outcome = ThirdPartyLogEntry.OK;
     }
 }

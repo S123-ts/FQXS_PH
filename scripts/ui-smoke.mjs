@@ -23,8 +23,8 @@ const URL = process.env.FQXS_URL || 'http://localhost:8080';
 /* 登录门（2026-10-22 起全站要会话，见 doc/技术交接.md §4.1）：
    冒烟脚本必须先登录，否则每个断言拿到的都是登录页。
    凭据与 application.yml 的 app.auth 默认值一致，可用环境变量覆盖 */
-const FQXS_USER = process.env.FQXS_USER || '123';
-const FQXS_PASS = process.env.FQXS_PASS || 'admin';
+const FQXS_USER = process.env.FQXS_USER || process.env.APP_LOGIN_USER || 'admin';
+const FQXS_PASS = process.env.FQXS_PASS || process.env.APP_LOGIN_PASSWORD || 'admin';
 
 async function loadChromium() {
     let specifier = process.env.PW_CORE || 'playwright-core';
@@ -93,7 +93,30 @@ try {
     // 不能用 networkidle：首屏会自动触发一次 AI 初筛（长请求），页面永远不会"静下来"。
     // 真正的就绪条件是 #bookList 出数据，交给 waitRendered() 判定
     await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    /* 「作者」默认男作者是用户定的，别改。刚重抓的榜单 author_gender 全是未知
+       （只补热度前 50），默认视图可能只有 0～几行——那是预期行为，不是 bug。
+       冒烟要保证后续用例有足够行数，所以断言完默认值就切到「全部」。 */
+    const defaultAuthorFilter = await page.$eval('#filterAuthor', el => el.value);
+    check('默认按男作者筛选', defaultAuthorFilter === 'male', defaultAuthorFilter);
+    /* 2026-10-25 用户定的筛选默认值：字数 100 万以上、状态连载中、评分 ≥9.0。
+       三者与作者一起叠加会把列表筛到个位数，后续用例要求足够行数，断言完就全部清空。 */
+    const defaultWord = await page.$eval('#filterWord', el => el.value);
+    const defaultStatus = await page.$eval('#filterStatus', el => el.value);
+    const defaultRating = await page.$eval('#filterMinRating', el => el.value);
+    check('默认字数 100 万以上', defaultWord === '100w以上', defaultWord);
+    check('默认状态连载中', defaultStatus === '连载中', defaultStatus);
+    check('默认评分 9.0', defaultRating === '9.0', defaultRating);
+    await page.selectOption('#filterWord', '');
+    await page.selectOption('#filterStatus', '');
+    await page.fill('#filterMinRating', '');
+    await page.dispatchEvent('#filterMinRating', 'change');
+    await page.selectOption('#filterAuthor', '');
+    await page.waitForFunction(() => document.querySelectorAll('#bookList .book-item').length > 1,
+        { timeout: 20000 });
     await waitRendered();
+    /* 引擎结论是列表渲染后异步补拉的：切筛选后如果不等它，徽章与「详情入口」会读成空 */
+    await page.waitForFunction(() => document.querySelector('.ai-badge') !== null, { timeout: 15000 })
+        .catch(() => {});
 
     // 1) 首屏：必须出数据，且不能是「加载失败」空态
     const first = await snapshot();
@@ -102,11 +125,70 @@ try {
     check('首屏未落在失败空态', !first.emptyText.includes('加载失败'), first.emptyText.slice(0, 60));
     check('首屏计数与行数一致', first.total > 0, first.total);
 
-    // 2) 改每页条数：只切本地数组，不该再打上游
-    await page.selectOption('#pageSizeSelect', '10');
+    // 1.5) 关注入口：每行一颗「关注」按钮，筛选栏有「只看关注」（2026-10-23 新增）
+    const watchBtns = await page.locator('#bookList .watch-btn').count();
+    const watchableRows = await page.locator('#bookList .book-item[data-book-id]').count();
+    const filterWatchedExists = await page.locator('#filterWatched').count();
+    check('每行都有「关注」按钮', watchBtns > 0 && watchBtns === watchableRows, `${watchBtns}/${watchableRows}`);
+    check('筛选栏有「只看关注」', filterWatchedExists === 1, filterWatchedExists);
+
+    // 1.6) 键盘：j/k 移动高亮、x 勾选、Enter 开详情（2026-10-23 新增）
+    // 先等引擎结论补拉完成：那次渲染会重建行，把高亮节点一起换掉
+    await page.waitForTimeout(1000);
+    // 详情按钮在「更多」菜单里（未展开时不可见），只等它存在，不等可见
+    await page.waitForFunction(
+        () => !!document.querySelector('#bookList .ai-detail-btn'),
+        { timeout: 20000 }
+    ).catch(() => {});
+    const hasDetailEntry = (await page.locator('#bookList .ai-detail-btn').count()) > 0;
+    if (!hasDetailEntry) console.log('SKIP: 库内暂无 AI 判定，Enter 打开详情断言跳过');
+    const kbState = () => page.evaluate(() => {
+        const rows = [...document.querySelectorAll('#bookList .book-item')];
+        return {
+            idx: rows.findIndex(r => r.classList.contains('kb-active')),
+            checked: !!document.querySelector('#bookList .row-check')?.checked,
+            detailOpen: !document.getElementById('aiDetailMask').hidden
+        };
+    });
+    /* 列表快捷键在表单控件里会让路（isTypingTarget），而上一步 selectOption 会把焦点
+       留在 #filterAuthor 上；先主动失焦，否则 j 被当成控件输入忽略、高亮永远 -1 */
+    await page.evaluate(() => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    });
+    await page.keyboard.press('j');
+    let kb = await kbState();
+    check('j 高亮第一行', kb.idx === 0, kb.idx);
+    await page.keyboard.press('j');
+    kb = await kbState();
+    check('再按 j 移到第二行', kb.idx === 1, kb.idx);
+    await page.keyboard.press('k');
+    kb = await kbState();
+    check('k 回到上一行', kb.idx === 0, kb.idx);
+    await page.keyboard.press('x');
+    kb = await kbState();
+    check('x 勾选当前行', kb.checked);
+    await page.keyboard.press('x');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    kb = await kbState();
+    check('Enter 打开当前行详情', !hasDetailEntry || kb.detailOpen);
+    await page.keyboard.press('Escape');
+
+    // 焦点在控件里时快捷键必须让路，否则打字/选择会被抢走
+    await page.focus('#pageSizeSelect');
+    const idxBefore = (await kbState()).idx;
+    await page.keyboard.press('j');
+    const idxAfter = (await kbState()).idx;
+    check('下拉框里按 j 不移动列表高亮', idxAfter === idxBefore, `${idxBefore} → ${idxAfter}`);
+    await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+
+    // 2) 改每页条数：默认 10，切到 20 验证生效，只切本地数组、不该再打上游
+    const defaultPageSize = await page.$eval('#pageSizeSelect', el => el.value);
+    check('默认每页 10 条', defaultPageSize === '10', defaultPageSize);
+    await page.selectOption('#pageSizeSelect', '20');
     await page.waitForTimeout(400);
     const sized = await snapshot();
-    check('每页条数生效', sized.items === 10, sized.items);
+    check('每页条数生效', sized.items === 20, sized.items);
     check('改条数后总数不变', sized.total === first.total, `${first.total} → ${sized.total}`);
 
     // 3) 翻页：本地切片
@@ -172,21 +254,46 @@ try {
     check('徽章里不出现「查验中」进度行',
         badgeTexts.every(text => !text.includes('查验')), badgeTexts.join(' | ') || '（无徽章）');
 
-    // 5.2) 详情入口：能打开逐引擎详情并看到 AI 率
-    const detailBtn = await page.waitForSelector('.ai-detail-btn', { timeout: 20000 }).catch(() => null);
-    if (detailBtn) {
-        await page.evaluate(() => document.querySelector('.ai-detail-btn').click());
+    // 5.2) 「更多」菜单：详情与逐章校验收在里面，行内只留徽章 + 更多 + 关注 + 拉黑
+    const moreBtn = await page.waitForSelector('#bookList .more-btn', { timeout: 20000 }).catch(() => null);
+    if (moreBtn) {
+        await moreBtn.click();
+        await page.waitForTimeout(200);
+        const menuState = await page.evaluate(() => {
+            const holder = document.querySelector('#bookList .row-more.menu-open');
+            const menu = holder && holder.querySelector('.more-menu');
+            const row = document.querySelector('#bookList .book-item');
+            const actions = row && row.querySelector('.title-actions');
+            const rowActions = actions ? actions.querySelectorAll('.row-actions > *').length : 0;
+            return {
+                open: !!menu && !menu.hidden,
+                detailItems: menu ? menu.querySelectorAll('[data-action="ai-detail"]').length : 0,
+                verifyItems: menu ? menu.querySelectorAll('[data-action="verify"]').length : 0,
+                badges: row ? row.querySelectorAll('.ai-badge').length : 0,
+                rowActions
+            };
+        });
+        check('「更多」菜单可打开', menuState.open);
+        check('菜单里有详情入口', menuState.detailItems > 0, menuState.detailItems);
+        check('菜单里有逐章校验入口（每引擎一颗）', menuState.verifyItems > 0, menuState.verifyItems);
+        check('行内操作收敛为「更多 + 关注 + 拉黑」',
+            menuState.rowActions >= 1 && menuState.rowActions <= 3,
+            `${menuState.rowActions} 个操作 / ${menuState.badges} 枚徽章`);
+
+        await page.locator('.row-more.menu-open [data-action="ai-detail"]').first().click();
         await page.waitForTimeout(200);
         const detail = await page.evaluate(() => {
             const mask = document.getElementById('aiDetailMask');
             return {
                 open: !!mask && !mask.hidden,
+                menuClosed: !document.querySelector('#bookList .row-more.menu-open'),
                 cards: document.querySelectorAll('#aiDetailBody .ai-detail-card').length,
                 scores: [...document.querySelectorAll('#aiDetailBody .ai-detail-score')].map(el => el.textContent.trim()),
                 reasons: document.querySelectorAll('#aiDetailBody .ai-detail-reason').length
             };
         });
         check('AI 详情可打开', detail.open);
+        check('点菜单项后菜单收起', detail.menuClosed);
         check('详情按引擎列出 AI 率', detail.cards > 0 && detail.scores.length === detail.cards
             && detail.scores.every(score => score.includes('%') || score === '—'), detail.scores.join(' | '));
         check('详情带判定理由字段', detail.reasons === detail.cards, `${detail.reasons}/${detail.cards}`);
@@ -199,7 +306,9 @@ try {
     }
 
     // 5.3) 操作动线：桌面吸顶工具条 + 分页吸底
-    await page.selectOption('#pageSizeSelect', '30');
+    /* 每页条数下拉只提供 10 / 20 / 自定义（index.html），旧脚本写死的 30 早已不存在，
+       selectOption 会超时并把整段脚本打断。这里改用 20：够把页面撑出滚动条即可 */
+    await page.selectOption('#pageSizeSelect', '20');
     await page.waitForTimeout(400);
     await page.evaluate(() => window.scrollTo(0, 1200));
     await page.waitForTimeout(300);
@@ -242,6 +351,18 @@ try {
             data: { username: FQXS_USER, password: FQXS_PASS }
         });
         await mobile.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        /* 默认男作者时列表可能只有几行、页面太短无法验证吸顶；先切「全部」再折回默认态 */
+        await mobile.click('#chromeSummary');
+        await mobile.waitForTimeout(200);
+        await mobile.selectOption('#filterWord', '');
+        await mobile.selectOption('#filterStatus', '');
+        await mobile.fill('#filterMinRating', '');
+        await mobile.dispatchEvent('#filterMinRating', 'change');
+        await mobile.selectOption('#filterAuthor', '');
+        await mobile.waitForFunction(() => document.querySelectorAll('#bookList .book-item').length > 1,
+            { timeout: 20000 });
+        await mobile.click('#chromeSummary');
+        await mobile.waitForTimeout(200);
         await mobile.waitForFunction(() => {
             const list = document.getElementById('bookList');
             return list && !list.querySelector('.loading');
@@ -294,6 +415,19 @@ try {
         });
         check('折叠摘要吸在导航下方', sticky.collapsed && Math.abs(sticky.top - sticky.navH) <= 2,
             `top=${sticky.top} nav=${sticky.navH}`);
+
+        // 审查记录页的手机档：书名检索框不能把标题行撑出屏幕
+        await mobile.goto(`${URL}/records`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await mobile.waitForSelector('#recResultRows tr', { timeout: 20000 });
+        const recordsMobile = await mobile.evaluate(() => ({
+            docW: document.documentElement.scrollWidth,
+            viewW: window.innerWidth,
+            searchVisible: !!document.getElementById('resultSearch')
+                && document.getElementById('resultSearch').offsetParent !== null
+        }));
+        check('审查记录页手机档检索框可见且无横向溢出',
+            recordsMobile.searchVisible && recordsMobile.docW <= recordsMobile.viewW + 1,
+            `${recordsMobile.docW}/${recordsMobile.viewW}`);
     } finally {
         await mobile.close();
     }
@@ -326,13 +460,68 @@ try {
         `拉取 ${recordsPage.fetchRows} / 结果 ${recordsPage.resultRows}`);
     check('审查记录页能进失败日志并回榜单', recordsPage.faultLink && recordsPage.back);
     // 章节列不能全是「—」：查的是第几章必须能从页面上读出来
-    const chapterFilled = recordsPage.chapterCells.filter(text => /^第 .+ 章$/.test(text)).length;
-    check('判定结果的章节列写明了第几章', chapterFilled > 0,
-        `已填 ${chapterFilled}/${recordsPage.chapterCells.length}：${recordsPage.chapterCells.slice(0, 4).join(' | ')}`);
+    /* 结果表没有真实判定流水时只剩一行空态（.rec-empty），此时没有「第 N 章」可读，
+       是空库而不是列渲染丢了；只在有真实行时断言，否则明确跳过 */
+    const hasRealResultRows = await page.locator('#recResultRows tr:not(:has(.rec-empty))').count() > 0;
+    if (hasRealResultRows) {
+        const chapterFilled = recordsPage.chapterCells.filter(text => /^第 .+ 章$/.test(text)).length;
+        check('判定结果的章节列写明了第几章', chapterFilled > 0,
+            `已填 ${chapterFilled}/${recordsPage.chapterCells.length}：${recordsPage.chapterCells.slice(0, 4).join(' | ')}`);
+    } else {
+        console.log('SKIP: 审查结果表当前只有空态行（库内无判定流水），章节列断言跳过');
+    }
+
+    // 7.5) 判定结果按书名检索：只过滤当前窗口已拉到的流水，不新增后端契约
+    const resultSearch = page.locator('#resultSearch');
+    check('判定结果有按书名检索框', await resultSearch.count() === 1);
+    const firstTitle = await page.evaluate(() => (
+        document.querySelector('#recResultRows .rec-book span') || {}
+    ).textContent?.trim() || '');
+    const needle = firstTitle.slice(0, 2);
+    if (needle) {
+        await resultSearch.fill(needle);
+        await page.waitForTimeout(300);
+        const searched = await page.evaluate(() => ({
+            rows: document.querySelectorAll('#recResultRows tr').length,
+            count: document.getElementById('recResultCount').textContent.trim(),
+            titles: [...document.querySelectorAll('#recResultRows .rec-book span')]
+                .map(el => el.textContent.trim())
+        }));
+        check('按书名检索只留命中行',
+            searched.rows > 0 && searched.titles.every(t => t.includes(needle)),
+            `${searched.count} · ${searched.titles.slice(0, 2).join(' | ')}`);
+
+        // 3 秒自动刷新会重建 tbody，但关键词和过滤结果必须保留
+        await page.waitForTimeout(3500);
+        const persisted = await page.evaluate(() => ({
+            value: document.getElementById('resultSearch').value,
+            count: document.getElementById('recResultCount').textContent.trim()
+        }));
+        check('自动刷新保留书名检索', persisted.value === needle && persisted.count.includes('/'),
+            persisted.count);
+
+        await resultSearch.fill('不存在书名zzz');
+        await page.waitForTimeout(300);
+        const noHit = await page.evaluate(() => (
+            document.querySelector('#recResultRows .rec-empty') || {}
+        ).textContent || '');
+        check('检索无命中给出明确空态', noHit.includes('没有书名包含'), noHit);
+
+        await resultSearch.fill('');
+        await page.waitForTimeout(300);
+        const restored = await page.evaluate(() => document.getElementById('recResultCount').textContent.trim());
+        check('清空检索恢复完整判定结果', /^\d+$/.test(restored) && Number(restored) > 0, restored);
+    }
 
     // 8) 失败日志页：跳过去能渲染出表格与摘要（它是独立静态页，不在主 state 里）
     await page.goto(`${URL}/faults`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForSelector('#faultRows tr', { timeout: 20000 });
+    /* #faultRows 在 HTML 里就带一行占位（<tr><td>—</td></tr>），
+       waitForSelector('#faultRows tr') 会立刻命中占位行、读到还没更新的摘要。
+       真正该等的是摘要离开「正在加载…」——那是 fetch 落地的唯一信号 */
+    await page.waitForFunction(
+        () => !(document.getElementById('faultSummary') || {}).textContent.includes('正在加载'),
+        { timeout: 20000 }
+    ).catch(() => {});
     const faultPage = await page.evaluate(() => ({
         title: (document.querySelector('.fault-title') || {}).textContent || '',
         rows: document.querySelectorAll('#faultRows tr').length,

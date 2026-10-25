@@ -3,8 +3,12 @@ package org.example.fqxs.service.impl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.fqxs.constant.CategoryCatalog;
+import org.example.fqxs.entity.AuthorMeta;
 import org.example.fqxs.entity.Novel;
+import org.example.fqxs.entity.NovelAiVerdict;
 import org.example.fqxs.model.NovelInfo;
+import org.example.fqxs.repository.AuthorMetaRepository;
+import org.example.fqxs.repository.NovelAiVerdictRepository;
 import org.example.fqxs.repository.NovelRepository;
 import org.example.fqxs.service.NovelService;
 import org.example.fqxs.util.DateUtil;
@@ -21,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -34,7 +39,12 @@ public class NovelServiceImpl implements NovelService {
     private static final int MAX_PAGE_SIZE = 200;
 
     private final NovelRepository novelRepository;
+    private final NovelAiVerdictRepository verdictRepository;
+    private final AuthorMetaRepository authorMetaRepository;
     private final PuaDecoder puaDecoder;
+
+    /** 逐章校验行的型号后缀：聚合时按去掉后缀的型号与初筛行合并。 */
+    private static final String VERIFY_SUFFIX = "#verify";
 
     @Override
     @Transactional
@@ -62,6 +72,13 @@ public class NovelServiceImpl implements NovelService {
         int skipped = 0;
         List<Novel> toSave = new ArrayList<>();
 
+        // 作者元数据（V20 起独立成表）：拉榜时把已知的性别/评分回填到新行，
+        // 掉榜重上的书不必再排队重取，页面也不会先显示成「未知」
+        Map<String, AuthorMeta> knownMeta = bookIds.isEmpty()
+                ? Collections.emptyMap()
+                : authorMetaRepository.findAllByBookIdIn(bookIds).stream()
+                        .collect(Collectors.toMap(AuthorMeta::getBookId, meta -> meta, (a, b) -> a));
+
         for (NovelInfo info : novelList) {
             // bookId 缺失不能入库：空串会让所有脏数据被并到同一行上互相覆盖
             if (info.getBookId() == null || info.getBookId().isBlank()) {
@@ -80,6 +97,7 @@ public class NovelServiceImpl implements NovelService {
                 updated++;
             }
             apply(novel, info, category, rankType);
+            applyMeta(novel, knownMeta.get(info.getBookId()));
             toSave.add(novel);
         }
 
@@ -122,7 +140,7 @@ public class NovelServiceImpl implements NovelService {
     @Override
     public Page<Novel> findAllBooksFiltered(List<String> categoryCodes, String wordRange, String status,
                                             boolean blockedOnly, boolean watchedOnly, String rankType,
-                                            int page, int size, String authorGender) {
+                                            int page, int size, String authorGender, Double minRating) {
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(size, MAX_PAGE_SIZE));
         Pageable pageable = PageRequest.of(safePage - 1, safeSize, sortFor(blockedOnly, watchedOnly));
@@ -138,12 +156,14 @@ public class NovelServiceImpl implements NovelService {
         } else if ("100w以内".equals(wordRange)) {
             maxWan = 100.0;
         }
+        Double ratingFloor = minRating == null || !Double.isFinite(minRating)
+                ? null : Math.max(0, Math.min(10, minRating));
         if (categoryCodes == null || categoryCodes.isEmpty()) {
             return novelRepository.pageAllBooks(rankType, blockedOnly, watchedOnly,
-                    statusFilter, minWan, maxWan, authorFilter, pageable);
+                    statusFilter, minWan, maxWan, authorFilter, ratingFloor, pageable);
         }
         return novelRepository.pageAllBooksByCodes(categoryCodes, rankType, blockedOnly, watchedOnly,
-                statusFilter, minWan, maxWan, authorFilter, pageable);
+                statusFilter, minWan, maxWan, authorFilter, ratingFloor, pageable);
     }
 
     /** 默认按热度；“已拉黑 / 只看关注”按对应时刻倒序，没有时刻的历史行排最后。 */
@@ -190,28 +210,34 @@ public class NovelServiceImpl implements NovelService {
     }
 
     /**
-     * 免费引擎结论按 bookId 全行联动：同一本书在多个分类榜各有一行，
-     * 结论必须一致，否则「全部」视图里同一本书会出现两种标记。
+     * 免费引擎结论按 bookId 全行联动。**主表是聚合口径**（2026-10-25 用户拍板）：
+     * 每次写入后按明细重算——每个「引擎 × 型号」取一条有效结论，任一型号为 AI 即主表 2。
+     * 这样 GLM 判 AI、ERNIE 判非 AI 时，主表不会被后写入的 ERNIE 覆盖成非 AI。
      */
     @Override
     @Transactional
     public void applyFreeVerdict(String bookId, int aiFlag, double aiScore, String engine) {
         List<Novel> rows = requireRows(bookId);
-        // 1. 逐行写入同一份结论与时刻，保证跨分类展示一致
-        LocalDateTime checkedTime = DateUtil.now();
-        for (Novel novel : rows) {
-            novel.setAiFlag(aiFlag);
-            novel.setAiScore(aiScore);
-            novel.setAiEngine(engine);
-            novel.setAiCheckedTime(checkedTime);
+        if (!recomputeAiAggregate(bookId, rows)) {
+            // 没有任何明细可聚合（历史数据/并发清理）：退回调用方给的单次结论
+            LocalDateTime checkedTime = DateUtil.now();
+            for (Novel novel : rows) {
+                novel.setAiFlag(aiFlag);
+                novel.setAiScore(aiScore);
+                novel.setAiEngine(engine);
+                novel.setAiCheckedTime(checkedTime);
+            }
+            novelRepository.saveAll(rows);
         }
-        novelRepository.saveAll(rows);
-        log.info("免费判定已落库: bookId={}, 标记={}, 概率={}, 涉及 {} 行", bookId, aiFlag, aiScore, rows.size());
+        log.info("免费判定已落库（主表按型号聚合）: bookId={}, 标记={}, 概率={}, 涉及 {} 行",
+                bookId, rows.get(0).getAiFlag(), rows.get(0).getAiScore(), rows.size());
     }
 
     /**
-     * 手动逐章校验结论按 bookId 全行联动。命中 AI 时覆盖 ai_flag：
-     * 手动校验的结论优先于整本初筛的判别结果。
+     * 手动逐章校验结论按 bookId 全行联动。
+     *
+     * <p>命中 AI 的优先级由明细聚合自然保证：`model#verify` 行一旦命中就一直是 2，
+     * 后续整本初筛判非 AI 也不会把它覆盖掉（用户要求「手动命中持久」）。未命中只动 zq_*。</p>
      */
     @Override
     @Transactional
@@ -226,17 +252,131 @@ public class NovelServiceImpl implements NovelService {
             novel.setZqChaptersChecked(checkedChapters);
             novel.setZqScore(manualScore);
             novel.setZqCheckedTime(checkedTime);
-            // 2. 命中即覆盖总标记：手动校验（无论哪个引擎）优先级最高
-            if (aiHit) {
-                novel.setAiFlag(2);
-                novel.setAiScore(manualScore);
-                novel.setAiEngine(engine);
-                novel.setAiCheckedTime(checkedTime);
-            }
         }
-        novelRepository.saveAll(rows);
+        // 2. 主表综合结论按明细重算：命中自然变 2；未命中不会覆盖别的型号/引擎的 AI 结论
+        if (!recomputeAiAggregate(bookId, rows)) {
+            novelRepository.saveAll(rows);
+        }
         log.info("手动校验已落库: bookId={}, engine={}, 标记={}, 已查 {} 章, 风险占比={}",
                 bookId, engine, manualFlag, checkedChapters, manualScore);
+    }
+
+    @Override
+    public int recomputeAiAggregates() {
+        int updated = 0;
+        for (String bookId : verdictRepository.findDistinctBookIds()) {
+            List<Novel> rows = novelRepository.findAllByBookId(bookId);
+            if (!rows.isEmpty() && recomputeAiAggregate(bookId, rows)) {
+                updated++;
+            }
+        }
+        return updated;
+    }
+
+    /**
+     * 按明细重算主表综合结论。
+     *
+     * <p>每个「引擎 × 型号」的有效结论按优先级取：逐章命中（{@code #verify} 且 2）→
+     * 整本初筛 → 逐章未命中的完成结论；随后任一为 AI 就主表 2，其次任一疑似 3，
+     * 再次任一非 AI 1。只有进度行（aiFlag=0）时不动主表。</p>
+     *
+     * @return true 表示已按明细写过主表；false 表示没有明细可依据
+     */
+    private boolean recomputeAiAggregate(String bookId, List<Novel> rows) {
+        List<NovelAiVerdict> verdicts = verdictRepository
+                .findByBookIdInOrderByCheckedTimeDescIdDesc(List.of(bookId));
+        if (verdicts.isEmpty()) {
+            return false;
+        }
+        Map<String, NovelAiVerdict> verifyHits = new LinkedHashMap<>();
+        Map<String, NovelAiVerdict> sweeps = new LinkedHashMap<>();
+        Map<String, NovelAiVerdict> verifyDone = new LinkedHashMap<>();
+        Map<String, NovelAiVerdict> latestAny = new LinkedHashMap<>();
+        for (NovelAiVerdict verdict : verdicts) { // 已按 checked_time desc, id desc
+            String key = verdict.getEngine() + "|" + baseModel(verdict.getModel());
+            latestAny.putIfAbsent(key, verdict);
+            int checked = verdict.getChaptersChecked() == null ? 0 : verdict.getChaptersChecked();
+            if (isVerifyRow(verdict)) {
+                if (verdict.getAiFlag() == 2) {
+                    verifyHits.putIfAbsent(key, verdict);
+                } else if (verdict.getAiFlag() > 0 && checked > 0) {
+                    verifyDone.putIfAbsent(key, verdict);
+                }
+            } else if (verdict.getAiFlag() > 0 && checked == 0) {
+                sweeps.putIfAbsent(key, verdict);
+            }
+        }
+        NovelAiVerdict chosen = null;
+        for (String key : latestAny.keySet()) {
+            NovelAiVerdict effective = verifyHits.get(key);
+            if (effective == null) {
+                effective = sweeps.get(key);
+            }
+            if (effective == null) {
+                effective = verifyDone.get(key);
+            }
+            if (effective != null && isStronger(effective, chosen)) {
+                chosen = effective;
+            }
+        }
+        if (chosen == null) {
+            return false;
+        }
+        double score = chosen.getAiScore() == null ? 0.0 : chosen.getAiScore();
+        LocalDateTime checkedTime = chosen.getCheckedTime() == null ? DateUtil.now() : chosen.getCheckedTime();
+        for (Novel novel : rows) {
+            novel.setAiFlag(chosen.getAiFlag());
+            novel.setAiScore(score);
+            novel.setAiEngine(chosen.getEngine());
+            novel.setAiCheckedTime(checkedTime);
+        }
+        novelRepository.saveAll(rows);
+        return true;
+    }
+
+    private static boolean isVerifyRow(NovelAiVerdict verdict) {
+        return verdict.getModel() != null && verdict.getModel().endsWith(VERIFY_SUFFIX);
+    }
+
+    private static String baseModel(String model) {
+        if (model == null) {
+            return "";
+        }
+        return model.endsWith(VERIFY_SUFFIX)
+                ? model.substring(0, model.length() - VERIFY_SUFFIX.length())
+                : model;
+    }
+
+    /** AI > 疑似 > 非 AI；同权重取更新的那条。 */
+    private static boolean isStronger(NovelAiVerdict candidate, NovelAiVerdict current) {
+        if (current == null) {
+            return true;
+        }
+        int weight = weight(candidate.getAiFlag());
+        int currentWeight = weight(current.getAiFlag());
+        if (weight != currentWeight) {
+            return weight > currentWeight;
+        }
+        return isNewer(candidate, current);
+    }
+
+    private static int weight(int aiFlag) {
+        return aiFlag == 2 ? 3 : aiFlag == 3 ? 2 : aiFlag == 1 ? 1 : 0;
+    }
+
+    private static boolean isNewer(NovelAiVerdict candidate, NovelAiVerdict current) {
+        LocalDateTime candidateTime = candidate.getCheckedTime();
+        LocalDateTime currentTime = current.getCheckedTime();
+        if (candidateTime == null || currentTime == null) {
+            return candidateTime != null;
+        }
+        int compared = candidateTime.compareTo(currentTime);
+        if (compared != 0) {
+            return compared > 0;
+        }
+        Long candidateId = candidate.getId();
+        Long currentId = current.getId();
+        return candidateId != null && (currentId == null || candidateId > currentId);
     }
 
     @Override
@@ -278,6 +418,31 @@ public class NovelServiceImpl implements NovelService {
         novel.setWordCount(info.getWordCount());
         novel.setWordCountWan(wordCountWanOf(info.getWordCount()));
         novel.setRankType(rankType);
+    }
+
+    /**
+     * 拉榜时把 author_meta 里已有的作者信息回填到榜单行。
+     *
+     * <p>为什么必须在拉榜时回填：一本书可能掉榜被清理删行、过几天又上榜，新插的行
+     * author_gender 是空的。不回填的话页面先显示「未知」，补齐线程还要为它再排一次队、
+     * 再花一次第三方额度——而元数据表里早就存着。回填之后「取过一次就永久命中」才真正成立。</p>
+     *
+     * <p>只填空缺：行上已有性别时保留行上的值（存量数据优先）；评分以元数据为准，它会定期刷新。</p>
+     */
+    private static void applyMeta(Novel novel, AuthorMeta meta) {
+        if (meta == null) {
+            return;
+        }
+        if (novel.getAuthorGenderCheckedTime() == null && meta.getGenderCheckedTime() != null) {
+            novel.setAuthorGender(meta.getGender());
+            novel.setAuthorGenderCheckedTime(meta.getGenderCheckedTime());
+        }
+        if (meta.getRating() != null) {
+            novel.setRating(meta.getRating());
+        }
+        if (meta.getRatingCheckedTime() != null) {
+            novel.setRatingCheckedTime(meta.getRatingCheckedTime());
+        }
     }
 
     /** 原始字数 → “万”数值；没有字数时留 null（不参与任何字数区间）。 */

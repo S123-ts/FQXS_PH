@@ -12,6 +12,8 @@ import okhttp3.ResponseBody;
 import org.example.fqxs.config.AiDetectConfig;
 import org.example.fqxs.config.FanqieConfig;
 import org.example.fqxs.exception.CrawlException;
+import org.example.fqxs.logging.ApiLogEntry;
+import org.example.fqxs.logging.OutboundApiLog;
 import org.example.fqxs.model.ChapterRef;
 import org.example.fqxs.model.ChapterSample;
 import org.example.fqxs.util.PuaDecoder;
@@ -380,20 +382,35 @@ public class ChapterClient {
                 .header("Referer", referer)
                 .build();
         long start = System.currentTimeMillis();
+        // 出站日志字段就地累积，finally 里无论成功失败都落一行 api_log（direction=OUT）
+        Integer status = null;
+        Integer bytes = null;
+        String outcome = ApiLogEntry.OUTCOME_OK;
+        String error = null;
         try (Response response = httpClient.newCall(request).execute()) {
+            status = response.code();
             if (!response.isSuccessful()) {
-                throw new CrawlException(scene + "抓取失败: 上游返回 " + response.code());
+                outcome = ApiLogEntry.OUTCOME_ERROR;
+                error = scene + "抓取失败: 上游返回 " + response.code();
+                throw new CrawlException(error);
             }
             ResponseBody responseBody = response.body();
             String body = responseBody == null ? "" : new String(responseBody.bytes(), StandardCharsets.UTF_8);
+            bytes = body.length();
             if (body.isBlank()) {
                 // 200 + 空 body 是上游风控的典型形态，不能当正常空内容
-                throw new CrawlException(scene + "返回空响应，可能被上游风控");
+                outcome = ApiLogEntry.OUTCOME_ERROR;
+                error = scene + "返回空响应，可能被上游风控";
+                throw new CrawlException(error);
             }
             log.debug("{}抓取完成: {} 字符, 耗时 {} ms", scene, body.length(), System.currentTimeMillis() - start);
             return body;
         } catch (IOException ioException) {
-            throw new CrawlException(scene + "抓取失败: " + ioException.getMessage(), ioException);
+            outcome = ApiLogEntry.OUTCOME_ERROR;
+            error = scene + "抓取失败: " + ioException.getMessage();
+            throw new CrawlException(error, ioException);
+        } finally {
+            OutboundApiLog.record(url, status, bytes, System.currentTimeMillis() - start, outcome, error);
         }
     }
 }

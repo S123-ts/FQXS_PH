@@ -124,14 +124,20 @@ class AiSampleCollectorTest {
 
         assertThat(collected.mode()).isEqualTo("third:random2x5");
         List<int[]> segments = parseSpan(collected.span());
-        assertThat(segments).hasSize(2);
+        // 两段起点之差允许正好等于段长（那时它们是首尾相接的 10 章，spanOf 会压成一段），
+        // 所以断言"一共 10 章、都在第 11 章之后、段间不重叠"，而不是死盯"必须两段"
+        int chapters = 0;
+        int previousEnd = 0;
         for (int[] segment : segments) {
-            assertThat(segment[1] - segment[0] + 1).isEqualTo(5);
+            assertThat(segment[0]).isGreaterThan(previousEnd);
+            assertThat(segment[1] - segment[0] + 1).isBetween(5, 10);
             // 1-based 章号必须 >= 11：前 10 章不参与随机
             assertThat(segment[0]).isGreaterThanOrEqualTo(11);
             assertThat(segment[1]).isLessThanOrEqualTo(200);
+            chapters += segment[1] - segment[0] + 1;
+            previousEnd = segment[1];
         }
-        assertThat(segments.get(1)[0]).isGreaterThan(segments.get(0)[1]);
+        assertThat(chapters).isEqualTo(10);
     }
 
     @Test
