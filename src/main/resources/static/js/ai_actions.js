@@ -22,6 +22,10 @@ import {
    继续重试只会把整轮初筛耗在同一个坏通道上（旧循环在整批失败时还会无限重试）。
    没有这个判断的话，所选引擎一旦持续报错，用户看到的就是进度条永远停在 0。 */
 const BAD_BATCH_LIMIT = 2;
+/* 「校验选中」的并发判定路数：与后端批量初筛的 sweep-concurrency（默认 3）对齐。
+   上游章节请求被 UpstreamThrottle 全局节拍串行化（800ms 一槽，多路只会排队），
+   并发的收益在模型调用；每本书的进度与结论按 bookId 独立，互不覆盖 */
+const SELECTION_WORKERS = 3;
 // 只认引擎/鉴权层面的信号：不能匹配错误文本里的 bookId 数字（曾把含 401 的 id 当限流）
 const FATAL_ENGINE_ERROR = /(鉴权失败|上游返回\s*(401|403|429)|余额不足|额度|欠费|未配置\s*API\s*Key)/;
 // 书本级错误：试读/目录为空之类换引擎也没用，不该触发熔断
@@ -55,8 +59,9 @@ let aiPageInFlight = false;
 // 运行中的批量任务各自一个中止器：再点一次按钮 = 跑完当前批后停止
 let aiSweepAbort = null;
 let aiPageAbort = null;
-// 手点徽章重跑：全局同时只允许一个（上游本来就串行），也防手滑连点
-let aiRerunInFlight = false;
+// 手点徽章重跑：按 (bookId, engine) 去重——同一本书同一个引擎重跑中再点才提示，
+// 不同书可同时重跑（与逐章校验同一套并行纪律）；防的是手滑连点把同一本书判两遍
+const aiRerunInFlight = new Set();
 
 // 未配 Key 的统一引导文案：初筛与校验选中用同一句，行为一致
 const NO_ENGINE_HINT = '未配置免费引擎密钥：点右上角「API 密钥」配置任意一个免费引擎，保存即生效';
@@ -234,9 +239,11 @@ function isAbortError(err) {
 /* 校验选中：用所选免费引擎逐个判定已勾选的书（支持单选与多选）。
    默认跳过已有该引擎初筛结论的书（后端幂等守卫兜底另一标签页的陈旧缓存）；
    勾了「重判」则选中的全部重走，并带 force=true（明确再消耗一次额度）。
-   逐本串行（不并发）：上游章节接口受限流约束，模型接口同样有速率上限；
+   勾选的书分片后并发判定（默认 3 路，与后端批量初筛的 sweep-concurrency 对齐）：
+   上游章节请求被 UpstreamThrottle 全局节拍串行化（800ms 一槽，多路并发也只会排队），
+   并发的收益在模型调用；每本书的进度与结论按 bookId 独立，互不覆盖。
    每本完成只原地更新该行的徽章与按钮，不整页重建。
-   运行中再点一次按钮 = 判完当前这本后停止；失败的书没写结论，再点一次只会重判它们 */
+   运行中再点一次按钮 = 判完在飞的本后停止；失败的书没写结论，再点一次只会重判它们 */
 export async function runSelectionVerdict() {
     if (aiPageInFlight) {
         if (aiPageAbort) aiPageAbort.abort();
@@ -278,57 +285,70 @@ export async function runSelectionVerdict() {
     let suspectCount = 0;
     let failed = 0;
     let stopped = false;
-    try {
-        for (const book of pending) {
-            if (signal.aborted) {
-                stopped = true;
-                break;
-            }
-            setBtnState(btn, '⏹', `校验中 ${done + 1}/${pending.length}`);
-            try {
-                const body = await detectFreeApi(book.bookId, {engine: activeEngine, force, sample}, signal);
-                const result = (body && body.data) || {};
-                // 主表综合列与逐引擎明细都回写本地缓存，翻页后依然正确
-                patchLocalBook(book.bookId, {
-                    aiFlag: result.aiFlag,
-                    aiScore: result.aiScore,
-                    aiEngine: result.engine
-                });
-                upsertLocalVerdict(book.bookId, {
-                    engine: result.engine,
-                    aiFlag: result.aiFlag,
-                    aiScore: result.aiScore,
-                    reason: result.reason
-                });
-                if (result.aiFlag === 2) aiCount++;
-                else if (result.aiFlag === 3) suspectCount++;
-                consecutiveFailed = 0;
-            } catch (err) {
-                if (isAbortError(err)) {
-                    stopped = true;
-                    break;
-                }
-                failed++;
-                consecutiveFailed++;
-                console.warn('选中校验失败:', book.bookId, err.message);
-                // 连续 3 本失败：多半是密钥/限流问题，换下一个可用引擎把剩下的书判完。
-                // 已判过的书不受影响（结论按实际引擎入库），失败的那几本没写结论，再点一次会重判
-                if (!randomMode && consecutiveFailed >= 3) {
-                    const next = nextAvailableEngine(activeEngine, triedEngines);
-                    if (next) {
-                        showToast(`${engineLabel(activeEngine)} 连续失败 ${consecutiveFailed} 本（${err.message}），`
-                            + `已切换到 ${engineLabel(next)} 继续`, 'warn', 8000);
-                        triedEngines.add(next);
-                        activeEngine = next;
-                        consecutiveFailed = 0;
-                        switchActiveEngine(next);
-                    }
-                }
-            }
-            done++;
-            // 只更新这一行的徽章与按钮：整页重建会让封面重新加载、列表闪一遍
-            patchBookRow(book.bookId);
+    /* 判定一本：多个 worker 并发调用。计数是闭包共享变量，JS 单线程下
+       await 交错不会丢更新；consecutiveFailed 在并发下是"全局最近连续失败数"
+       （任一路失败都累加、任一路成功即清零），熔断意图——密钥/限流/额度问题
+       把剩下的书判完——不受影响，反而比单路视角更早发现坏通道 */
+    const judgeOne = async (book) => {
+        if (signal.aborted) {
+            stopped = true;
+            return;
         }
+        setBtnState(btn, '⏹', `校验中 ${done + 1}/${pending.length}`);
+        try {
+            const body = await detectFreeApi(book.bookId, {engine: activeEngine, force, sample}, signal);
+            const result = (body && body.data) || {};
+            // 主表综合列与逐引擎明细都回写本地缓存，翻页后依然正确
+            patchLocalBook(book.bookId, {
+                aiFlag: result.aiFlag,
+                aiScore: result.aiScore,
+                aiEngine: result.engine
+            });
+            upsertLocalVerdict(book.bookId, {
+                engine: result.engine,
+                aiFlag: result.aiFlag,
+                aiScore: result.aiScore,
+                reason: result.reason
+            });
+            if (result.aiFlag === 2) aiCount++;
+            else if (result.aiFlag === 3) suspectCount++;
+            consecutiveFailed = 0;
+        } catch (err) {
+            if (isAbortError(err)) {
+                stopped = true;
+                return;
+            }
+            failed++;
+            consecutiveFailed++;
+            console.warn('选中校验失败:', book.bookId, err.message);
+            // 连续 3 本失败：多半是密钥/限流问题，换下一个可用引擎把剩下的书判完。
+            // 已判过的书不受影响（结论按实际引擎入库），失败的那几本没写结论，再点一次会重判
+            if (!randomMode && consecutiveFailed >= 3) {
+                const next = nextAvailableEngine(activeEngine, triedEngines);
+                if (next) {
+                    showToast(`${engineLabel(activeEngine)} 连续失败 ${consecutiveFailed} 本（${err.message}），`
+                        + `已切换到 ${engineLabel(next)} 继续`, 'warn', 8000);
+                    triedEngines.add(next);
+                    activeEngine = next;
+                    consecutiveFailed = 0;
+                    switchActiveEngine(next);
+                }
+            }
+        }
+        done++;
+        // 只更新这一行的徽章与按钮：整页重建会让封面重新加载、列表闪一遍
+        patchBookRow(book.bookId);
+    };
+    try {
+        // round-robin 分片：比顺序切块均匀，不会让一个 worker 全拿热度高的书
+        const workers = Math.min(SELECTION_WORKERS, pending.length);
+        const chunks = Array.from({length: workers}, () => []);
+        pending.forEach((book, index) => chunks[index % workers].push(book));
+        await Promise.all(chunks.map(async (chunk) => {
+            for (const book of chunk) {
+                await judgeOne(book);
+            }
+        }));
 
         const summary = (stopped ? '选中校验已停止：' : '选中校验完成：') + `${done} 本（AI ${aiCount} / 疑似 ${suspectCount}）`
             + (skipped ? `，跳过已判 ${skipped}` : '') + (failed ? `，失败 ${failed}` : '');
@@ -356,16 +376,17 @@ export function selectionButtonLabel() {
 
 /* 点行内模型名（徽章）= 用该引擎 + 当前取样规则强制重跑这本书，并写一条 rerun 流水。
    不看「重判」勾选：手点徽章本身就是显式重跑。
-   重跑期间全局只允许一个（上游本来就串行），其余点击提示稍候 */
+   同一本书同一引擎只跑一个（防手滑连点），不同书同时重跑互不挡 */
 export async function runBadgeRerun(bookId, engine, btnElement) {
     if (!bookId || !engine || !btnElement) return;
-    if (aiRerunInFlight) {
-        showToast('正在重跑另一本书，请稍候', 'warn', 4000);
+    const flightKey = verifyFlightKey(bookId, engine);
+    if (aiRerunInFlight.has(flightKey)) {
+        showToast('这本书的这个引擎正在重跑中，请稍候', 'warn', 4000);
         return;
     }
     const sample = getSampleSpec();
     const label = engineLabel(engine);
-    aiRerunInFlight = true;
+    aiRerunInFlight.add(flightKey);
     const previousText = btnElement.textContent;
     btnElement.disabled = true;
     btnElement.textContent = `${label}·重跑中`;
@@ -392,7 +413,7 @@ export async function runBadgeRerun(bookId, engine, btnElement) {
         btnElement.textContent = previousText;
         showToast(`重跑失败: ${err.message}`, 'error', 6000);
     } finally {
-        aiRerunInFlight = false;
+        aiRerunInFlight.delete(flightKey);
     }
 }
 
@@ -427,8 +448,15 @@ function engineLabel(engine) {
 
 /* 兜底步数：10 章 × 型号池，正常路径靠进度自己停，走不到这里 */
 const VERIFY_MAX_STEPS = 200;
-/* 全局只跑一批：两个循环会抢同一行游标，等于把同一章判两遍 */
-let verifyBatchInFlight = false;
+/* 在飞批次按 (bookId, engine) 去重：同一本书同一个引擎只允许一个循环
+   （两个循环会抢同一行游标，等于把同一章判两遍），
+   不同书、或同书不同引擎互不挡——审查要能多个同时跑（2026-10-25 用户要求）。
+   上游章节请求由后端 UpstreamThrottle 全局节拍串行化，并行打不爆番茄。 */
+const verifyBatchInFlight = new Set();
+
+function verifyFlightKey(bookId, engine) {
+    return `${bookId}|${engine}`;
+}
 
 /* 按钮上的引擎短名：与 render.js 渲染时取同一字段，避免「校验中」时突然换名 */
 function verifyEngineName(engine) {
@@ -499,11 +527,12 @@ function reportVerifyResult(shortName, chapters, hits, failure, allDone) {
    命中 AI 不再是终态：继续把剩余章节查完，逐章结论写进详情流水。 */
 export async function runVerifyBatch(bookId, engine, btnElement) {
     if (!bookId || !btnElement || !engine) return;
-    if (verifyBatchInFlight) {
-        showToast('已有一批逐章校验在跑，等它结束再点', 'warn', 4000);
+    const flightKey = verifyFlightKey(bookId, engine);
+    if (verifyBatchInFlight.has(flightKey)) {
+        showToast('这本书的这个引擎正在校验中，等它结束再点', 'warn', 4000);
         return;
     }
-    verifyBatchInFlight = true;
+    verifyBatchInFlight.add(flightKey);
     const sample = getSampleSpec();
     const shortName = verifyEngineName(engine);
     const restingText = btnElement.textContent || shortName;
@@ -550,8 +579,11 @@ export async function runVerifyBatch(bookId, engine, btnElement) {
     } catch (err) {
         failure = err;
     } finally {
-        verifyBatchInFlight = false;
-        // 整批结束后统一重绘这一行：徽章、按钮文案与禁用态都按最终状态来
+        verifyBatchInFlight.delete(flightKey);
+        // 整批结束后统一重绘这一行：徽章、按钮文案与禁用态都按最终状态来。
+        // 多批并行时各批只 patch 自己那一行；极端情况下同一本书两个引擎同时在跑，
+        // 先结束那批的重建会让另一批的旧按钮元素脱离文档——后续循环写它无害，
+        // 文案由下一次 renderBooks / loadVerdicts 重画补正
         patchBookRow(bookId);
         // 行不在当前视图时 patchBookRow 不会重建按钮，兜底恢复，避免卡在「校验中」
         if (document.contains(btnElement)) {
