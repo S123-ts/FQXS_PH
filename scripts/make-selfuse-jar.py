@@ -48,6 +48,13 @@ def main() -> None:
     password = os.getenv('SELFUSE_PASSWORD')
     if not user or not password:
         sys.exit('请先设置 SELFUSE_USER / SELFUSE_PASSWORD 环境变量再运行（口令不写进仓库）')
+    # 防呆：曾把 .bat 的赋值语句整体当成了值（SELFUSE_PASSWORD="APP_LOGIN_PASSWORD=xxx"），
+    # 于是包内默认值多了 "APP_LOGIN_PASSWORD=" 前缀，服务器上输对口令也永远 401。
+    # 前缀一旦进包，只能在包内看到，排查要 dump jar —— 在这里直接拦掉。
+    for name, value in (('SELFUSE_USER', user), ('SELFUSE_PASSWORD', password)):
+        if '=' in value or ' ' in value:
+            sys.exit(f'{name} 只能是值本身，不能带「变量名=」前缀或空格：'
+                     f'当前长度 {len(value)}。正确用法：set SELFUSE_PASSWORD=<你的口令>')
 
     with zipfile.ZipFile(src) as zin:
         yml = zin.read(TARGET_ENTRY).decode('utf-8')
