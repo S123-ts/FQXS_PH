@@ -35,6 +35,11 @@ import java.util.concurrent.locks.ReentrantLock;
  * <p>第三方 /info 是共享云手机、约 19KB/本，容量很小，两条路径都严格串行。性别只取一次
  * （有 checked_time 就不再请求）；评分按 {@code rating-refresh-days} 刷新（默认 5 天）。</p>
  *
+ * <p><b>性别兜底（2026-10-25 用户要求）</b>：第三方判未知（{@code profile_gender}=2 或缺失）时，
+ * 按书籍频道记性别——男频记男、女频记女，让页面上不再出现「未知」。第三方给了可信值（0/1）时
+ * 绝不拿频道覆盖（女写男频、男写女频都常见，频道不是性别判据）。兜底取 {@code novel_rank.gender}，
+ * 书已掉榜无从兜底时仍写未知。详见 {@link #authorGenderOf}。</p>
+ *
  * <p>结果落在 {@code author_meta}（跟着 book_id 走，不跟榜单走）：书掉榜被清理时榜单行会删掉，
  * 但作者信息留在元数据表里，重新上榜由拉榜回填直接命中，不必再花一次额度。
  * 同一本书在多个分类各有一行，同步时按 bookId 全行联动。</p>
@@ -255,7 +260,7 @@ public class BookMetaEnricher {
         // 性别只取一次：已经取过就保留首次结果，评分刷新时也不覆盖
         boolean genderWritten = record.getGenderCheckedTime() == null;
         if (genderWritten) {
-            record.setGender(meta.authorGender());
+            record.setGender(authorGenderOf(meta, rows));
             record.setGenderCheckedTime(now);
         }
         if (meta.rating() != null) {
@@ -265,13 +270,43 @@ public class BookMetaEnricher {
         authorMetaRepository.save(record);
 
         syncRankRows(rows, record);
+        // 兜底来的性别要在日志里能看出来：事后追查"某本为什么是男/女"时，
+        // 分不清"第三方说的"和"按频道猜的"就等于没有线索
+        String genderNote = !genderWritten ? "（沿用首次结果）"
+                : meta.authorGender() == null && record.getGender() != null ? "（按书籍频道兜底）" : "";
         log.info("作者信息已落库: bookId={}, 书名={}, 作者={}, 性别={}{}, 评分={}",
                 bookId,
                 rows.isEmpty() ? "（榜单已无此书，元数据已留存）" : rows.get(0).getTitle(),
                 record.getAuthor() == null ? "未知" : record.getAuthor(),
                 genderLabel(record.getGender()),
-                genderWritten ? "" : "（沿用首次结果）",
+                genderNote,
                 record.getRating() == null ? "无" : record.getRating());
+    }
+
+    /**
+     * 作者性别取值：第三方给了可信值（{@code profile_gender} 0/1）就用它；
+     * 第三方判未知（2 或字段缺失）时按书籍频道兜底——男频记男、女频记女。
+     *
+     * <p><b>频道兜底是产品取舍，不是数据结论。</b>作者性别与书籍频道并不强相关
+     * （女写男频、男写女频都常见，2026-10-25 实测过，因此
+     * {@code AUTHOR_GENDER <> GENDER} 从来不能当"错值"判据）；但用户明确要求
+     * 页面上不再出现「未知」这一档，且第三方对这类书的作者主页普遍资料全空
+     * （无百科、0 粉丝、0 作品），短期拿不到更可信的值，两害相权取其轻。</p>
+     *
+     * <p>兜底值取 {@code novel_rank.gender}（程序按拉取频道自写，1=男频 / 0=女频，
+     * 与作者性别编码恰好同值），不取第三方顶层 {@code gender}——那个字段在响应里
+     * 被正文字段淹着、定位不稳，且同样是频道语义。榜单行已掉（rows 为空）时
+     * 无从兜底，仍写未知。</p>
+     */
+    private static Integer authorGenderOf(ThirdPartyBookClient.BookMeta meta, List<Novel> rows) {
+        if (meta.authorGender() != null) {
+            return meta.authorGender();
+        }
+        if (rows.isEmpty()) {
+            return null;
+        }
+        Integer channel = rows.get(0).getGender();
+        return channel != null && (channel == 0 || channel == 1) ? channel : null;
     }
 
     /** 元数据同步到榜单行：性别只在行上还没盖过章时写，评分有值就覆盖。 */

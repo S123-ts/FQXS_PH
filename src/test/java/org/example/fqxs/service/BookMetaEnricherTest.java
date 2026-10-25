@@ -289,6 +289,71 @@ class BookMetaEnricherTest {
         verify(novelRepository, never()).findAllByBookId(anyString());
     }
 
+    // ---- 频道兜底：第三方判未知时才用，第三方有可信值时绝不拿频道覆盖 ----
+
+    /** 第三方 profile_gender=2（未知）+ 男频书 → 记男；评分照常落库。 */
+    @Test
+    void fallsBackToChannelWhenThirdPartyGenderUnknown() {
+        Novel male = row("7");
+        male.setGender(1);
+        when(bookClient.fetchMeta("7")).thenReturn(new ThirdPartyBookClient.BookMeta(null, 8.5));
+        when(novelRepository.findAllByBookId("7")).thenReturn(List.of(male));
+
+        assertEquals(BookMetaEnricher.Outcome.UPDATED, enricher.enrichOne("7"));
+
+        assertEquals(1, male.getAuthorGender());
+        assertEquals(8.5, male.getRating(), 0.001);
+        assertNotNull(male.getAuthorGenderCheckedTime());
+        org.mockito.ArgumentCaptor<AuthorMeta> captor =
+                org.mockito.ArgumentCaptor.forClass(AuthorMeta.class);
+        verify(authorMetaRepository).save(captor.capture());
+        assertEquals(1, captor.getValue().getGender());
+    }
+
+    /** 女频书同样兜底：第三方未知 + gender=0 → 记女。 */
+    @Test
+    void fallsBackToChannelForFemaleChannel() {
+        Novel female = row("7");
+        female.setGender(0);
+        when(bookClient.fetchMeta("7")).thenReturn(new ThirdPartyBookClient.BookMeta(null, 9.0));
+        when(novelRepository.findAllByBookId("7")).thenReturn(List.of(female));
+
+        enricher.enrichOne("7");
+
+        assertEquals(0, female.getAuthorGender());
+    }
+
+    /**
+     * 兜底只在第三方未知时生效：第三方给了可信值（哪怕是女作者写在男频书里），
+     * 也必须原样落库，不拿频道"纠正"它——作者性别与频道本无强相关。
+     */
+    @Test
+    void neverOverridesThirdPartyGenderWithChannel() {
+        Novel maleChannel = row("7");
+        maleChannel.setGender(1);
+        when(bookClient.fetchMeta("7")).thenReturn(new ThirdPartyBookClient.BookMeta(0, 8.8));
+        when(novelRepository.findAllByBookId("7")).thenReturn(List.of(maleChannel));
+
+        enricher.enrichOne("7");
+
+        assertEquals(0, maleChannel.getAuthorGender());
+    }
+
+    /** 书已掉榜（没有榜单行可取频道）：兜底无从发生，仍写未知，不猜。 */
+    @Test
+    void keepsUnknownWhenNoRankRowToReadChannelFrom() {
+        when(bookClient.fetchMeta("9")).thenReturn(new ThirdPartyBookClient.BookMeta(null, 9.3));
+        when(novelRepository.findAllByBookId("9")).thenReturn(List.of());
+
+        enricher.enrichOne("9");
+
+        org.mockito.ArgumentCaptor<AuthorMeta> captor =
+                org.mockito.ArgumentCaptor.forClass(AuthorMeta.class);
+        verify(authorMetaRepository).save(captor.capture());
+        assertNull(captor.getValue().getGender());
+        assertEquals(9.3, captor.getValue().getRating(), 0.001);
+    }
+
     /** 书级失败不累计「连续失败」：3 本下架书之后仍应继续补后面的书。 */
     @Test
     void itemLevelFailureDoesNotCountTowardLineDown() {
