@@ -13,10 +13,10 @@ log/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-### 不上传 GitHub 的文档（规则见 AGENTS.md「交付口径」节，决策 D2）###
+### 不上传 GitHub 的内部文档（规则见 AGENTS.md「交付口径」节，决策 D2）###
+### 例外：README.md 是仓库的公开门面，随仓库发布（2026-10-25 起）###
 /AGENTS.md
 /doc/
-/README.md
 
 ### WorkBuddy 本地工作数据（记忆/会话，不进版本管理）###
 .workbuddy/
