@@ -58,6 +58,9 @@ const check = (name, ok, detail) => {
 const chromium = await loadChromium();
 const browser = await chromium.launch({
     executablePath: process.env.CHROME_PATH || undefined,
+    // 不跟随系统代理：冒烟目标是 localhost 或服务器直连 IP，走本机代理只会把
+    // 请求甩给一个可能没在监听的端口（实测 ERR_CONNECTION_RESET，而 curl 直连正常）
+    args: ['--no-proxy-server'],
     headless: true
 });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
