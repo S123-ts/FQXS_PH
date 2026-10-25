@@ -399,6 +399,35 @@ function renderChips(book) {
         .join('') + updateHtml;
 }
 
+/* ---------- 新入榜标记 ----------
+   判据是 novel_rank.create_time（该书首次被拉入该榜单的时刻，掉榜重上会重新计时），
+   7 天内入榜才亮徽章。createTime 形如 "2026-10-25 21:54:48"：
+   Safari 的 Date 不认这种带空格的格式（返回 NaN），先把空格换成 T 再解析；
+   没有值、空串、解析失败一律不亮。窗口写成常量而非配置项——目前只有这一处消费。 */
+const NEW_BOOK_DAYS = 7;
+const NEW_BOOK_WINDOW_MS = NEW_BOOK_DAYS * 24 * 60 * 60 * 1000;
+
+function parseDbTime(value) {
+    if (!value) return null;
+    const text = String(value).trim();
+    if (!text) return null;
+    const parsed = new Date(text.replace(' ', 'T'));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isNewBook(book) {
+    const firstSeen = parseDbTime(book && book.createTime);
+    if (!firstSeen) return false;
+    return Date.now() - firstSeen.getTime() <= NEW_BOOK_WINDOW_MS;
+}
+
+/* 徽章文案只写「新」，完整判据放进 title：鼠标悬停能看到首次入榜的具体时刻 */
+function renderNewBadge(book) {
+    if (!isNewBook(book)) return '';
+    const hint = NEW_BOOK_DAYS + ' 天内新加入榜单（' + book.createTime + ' 首次入榜）';
+    return `<span class="new-badge" title="${escapeAttr(hint)}">新</span>`;
+}
+
 /* 引擎展示名与 AI 率格式：徽章与详情弹窗共用同一套，
    避免同一结论在两处显示成不同精度 */
 const ENGINE_DISPLAY = {
@@ -705,6 +734,7 @@ export function renderBooks(data) {
                 <div class="content">
                     <div class="title font-DNMrHsV173Pd4pgy">
                         ${titleHtml}
+                        ${renderNewBadge(book)}
                         <span class="status ${statusClass}">${escapeText(book.status || '连载中')}</span>
                         ${actionsHtml ? `<span class="title-actions">${actionsHtml}</span>` : ''}
                     </div>

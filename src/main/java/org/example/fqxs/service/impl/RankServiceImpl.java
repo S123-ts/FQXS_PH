@@ -6,10 +6,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.fqxs.client.FanqieApiClient;
 import org.example.fqxs.config.FanqieConfig;
 import org.example.fqxs.constant.CategoryCatalog;
+import org.example.fqxs.entity.Novel;
 import org.example.fqxs.exception.CrawlException;
 import org.example.fqxs.model.CategoryCrawlResult;
 import org.example.fqxs.model.NovelInfo;
 import org.example.fqxs.model.RankListResult;
+import org.example.fqxs.repository.NovelRepository;
 import org.example.fqxs.service.ConfigService;
 import org.example.fqxs.service.NovelService;
 import org.example.fqxs.service.RankService;
@@ -17,10 +19,14 @@ import org.example.fqxs.util.DateUtil;
 import org.example.fqxs.util.NovelTextParser;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -33,10 +39,15 @@ public class RankServiceImpl implements RankService {
     /** 单分类抓取最多等这么久让位给全量任务，超过就报错而不是排队挂住线程。 */
     private static final long CRAWL_LOCK_WAIT_MS = 60_000L;
 
+    /** 首次入榜时刻的回填格式：与 Novel.createTime 的 JSON 序列化格式一致，前端按同一口径解析。 */
+    private static final DateTimeFormatter FIRST_SEEN_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
     private final FanqieApiClient apiClient;
     private final FanqieConfig fanqieConfig;
     private final NovelService novelService;
     private final ConfigService configService;
+    private final NovelRepository novelRepository;
 
     private final ReentrantLock fullCrawlLock = new ReentrantLock();
 
@@ -236,10 +247,48 @@ public class RankServiceImpl implements RankService {
                     novelService.saveOrUpdateNovelList(novels, category, rankType, pruneStale);
             log.info("分类[{}]落库完成({}): 新增 {}, 更新 {}, 跳过 {}", category.getName(),
                     rankType, summary.inserted(), summary.updated(), summary.skipped());
+            fillFirstSeen(novels, category, rankType);
             return true;
         } catch (RuntimeException e) {
             log.warn("分类[{}]写库失败（数据库可能未启动），本次仅返回抓取结果: {}", category.getName(), e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * 回填每本书的首次入榜时刻（novel_rank.create_time）。
+     *
+     * <p>分类视图的数据来自上游响应（NovelInfo），本身不带入库时间；「7 天内新加入榜单」
+     * 徽章的判据是 create_time，只能在这里写库后按 bookId 回查。saveOrUpdateNovelList
+     * 是独立事务，方法返回时已提交，此刻查得到刚插入的行。</p>
+     *
+     * <p>只查本次榜单涉及的 bookId（一次 IN 查询，最多百来个），不扫全库；查不到或
+     * create_time 为空的行保持 null，前端据此不亮徽章。回填本身失败只丢徽章，
+     * 不影响本次展示，因此单独兜底不外抛。</p>
+     */
+    private void fillFirstSeen(List<NovelInfo> novels, CategoryCatalog category, String rankType) {
+        List<String> bookIds = novels.stream()
+                .map(NovelInfo::getBookId)
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+        if (bookIds.isEmpty()) {
+            return;
+        }
+        try {
+            Map<String, LocalDateTime> firstSeen = novelRepository
+                    .findByCategoryCodeAndRankTypeAndBookIdIn(category.getCode(), rankType, bookIds).stream()
+                    .filter(novel -> novel.getBookId() != null && novel.getCreateTime() != null)
+                    .collect(Collectors.toMap(Novel::getBookId, Novel::getCreateTime, (a, b) -> a));
+            for (NovelInfo info : novels) {
+                LocalDateTime time = firstSeen.get(info.getBookId());
+                if (time != null) {
+                    info.setCreateTime(time.format(FIRST_SEEN_FORMAT));
+                }
+            }
+        } catch (RuntimeException e) {
+            log.warn("回填首次入榜时刻失败（分类[{}]），本次不显示新书标记: {}",
+                    category.getName(), e.getMessage());
         }
     }
 

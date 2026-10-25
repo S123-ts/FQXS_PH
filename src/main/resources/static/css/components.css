@@ -884,6 +884,18 @@
     background: var(--surface-2);
     color: var(--text-3);
 }
+/* 7 天内新加入榜单的标记：与 .status 同形药丸，用品牌红把「这本是新的」讲出来；
+   颜色走 accent 变量，深浅主题各自适配。title 提示里带首次入榜时刻 */
+.book-item .title .new-badge {
+    flex-shrink: 0;
+    padding: 1px 9px;
+    border-radius: var(--r-full);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    white-space: nowrap;
+}
 .book-item .info-row {
     display: flex;
     flex-wrap: wrap;

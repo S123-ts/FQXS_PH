@@ -23,4 +23,13 @@ public class NovelInfo {
     /** 1=男频 0=女频，来自分类目录而非上游响应。 */
     private Integer gender;
     private String wordCount;
+
+    /**
+     * 首次入榜时刻（对应 novel_rank.create_time，格式 {@code yyyy-MM-dd HH:mm:ss}）。
+     *
+     * <p>上游响应里没有这个字段——它是入库时由 {@code @PrePersist} 盖的时间戳。
+     * 抓取即写库，因此 {@code RankServiceImpl.persist} 成功后按 bookId 回查回填；
+     * 数据库不可用时留空，前端「7 天内新加入榜单」徽章据此不亮。</p>
+     */
+    private String createTime;
 }

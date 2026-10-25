@@ -5,10 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.fqxs.client.FanqieApiClient;
 import org.example.fqxs.config.FanqieConfig;
 import org.example.fqxs.constant.CategoryCatalog;
+import org.example.fqxs.entity.Novel;
 import org.example.fqxs.exception.CrawlException;
 import org.example.fqxs.model.CategoryCrawlResult;
 import org.example.fqxs.model.NovelInfo;
 import org.example.fqxs.model.RankListResult;
+import org.example.fqxs.repository.NovelRepository;
 import org.example.fqxs.service.ConfigService;
 import org.example.fqxs.service.NovelService;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.dao.DataAccessResourceFailureException;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -42,11 +45,15 @@ class RankServiceImplTest {
     @Mock
     private ConfigService configService;
 
+    @Mock
+    private NovelRepository novelRepository;
+
     private RankServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new RankServiceImpl(apiClient, new FanqieConfig(), novelService, configService);
+        service = new RankServiceImpl(apiClient, new FanqieConfig(), novelService, configService,
+                novelRepository);
         when(configService.getActiveRankType()).thenReturn("read");
     }
 
@@ -176,6 +183,41 @@ class RankServiceImplTest {
 
         assertEquals(2, result.novels().size());
         assertFalse(result.dbSaved(), "落库失败必须让前端知道");
+    }
+
+    /** 分类视图的新书徽章判据是 create_time：写库成功后必须按 bookId 回填进 NovelInfo。 */
+    @Test
+    void persistBackfillsFirstSeenTimeForTheNewBadge() throws Exception {
+        when(apiClient.fetchRankUrl(anyInt(), anyInt(), anyInt(), anyInt(), anyInt()))
+                .thenReturn(rankPayload(2));
+        when(novelService.saveOrUpdateNovelList(anyList(), any(), any(), anyBoolean()))
+                .thenReturn(new NovelService.UpsertSummary(2, 0, 0));
+        Novel row = new Novel();
+        row.setBookId("b1");
+        row.setCreateTime(LocalDateTime.of(2026, 10, 25, 12, 30, 0));
+        when(novelRepository.findByCategoryCodeAndRankTypeAndBookIdIn(any(), any(), any()))
+                .thenReturn(List.of(row));
+
+        RankListResult result = service.getRankList(CategoryCatalog.M_WESTERN_FANTASY, 1, 30);
+
+        assertEquals("2026-10-25 12:30:00", result.novels().get(0).getCreateTime(),
+                "回填格式必须与 Novel.createTime 的 JSON 序列化保持一致");
+        assertNull(result.novels().get(1).getCreateTime(), "没查到入库时刻的行留空，前端不亮徽章");
+    }
+
+    /** 库挂了时没有入库时刻可回填，也不能为此再查一次库。 */
+    @Test
+    void databaseWriteFailureLeavesFirstSeenTimeEmpty() throws Exception {
+        when(apiClient.fetchRankUrl(anyInt(), anyInt(), anyInt(), anyInt(), anyInt()))
+                .thenReturn(rankPayload(2));
+        when(novelService.saveOrUpdateNovelList(anyList(), any(), any(), anyBoolean()))
+                .thenThrow(new DataAccessResourceFailureException("数据库未启动"));
+
+        RankListResult result = service.getRankList(CategoryCatalog.M_WESTERN_FANTASY, 1, 30);
+
+        assertFalse(result.dbSaved());
+        assertNull(result.novels().get(0).getCreateTime());
+        verify(novelRepository, never()).findByCategoryCodeAndRankTypeAndBookIdIn(any(), any(), any());
     }
 
     /** 一键获取（全量）按「请求数」判完整：70 本就是新的整榜口径，71–100 名应按掉榜清掉。 */
