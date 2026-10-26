@@ -2,13 +2,16 @@
 /* ============================================================
    js/ai_detail.js - 「AI 判定详情」面板
    卡片头按「引擎 × 型号」各取一条（pickModelVerdicts，与行内徽章同一优先级：
-   逐章命中优先，否则最新）；卡内的「校验记录」只列该型号的每一轮判定——
+   逐章命中优先，否则最新）；卡内再给一个该型号的**加权平均 AI 率**
+   （ai_rate.js，按实际看的章数加权），两者视角不同：
+   头部回答「最近一次判成什么」，综合值回答「这本书在这个型号下的整体风险」。
    卡内的「校验记录」打开面板后按 engine 异步拉 /api/ai/verdicts/history——
    明细表同型号重判会覆盖，只有流水能看出「这本书被谁判过几次、每次什么结论」。
    ============================================================ */
 
 import { state } from './state.js';
 import { fetchVerdictHistoryApi } from './api.js';
+import { weightedAiRate } from './ai_rate.js';
 import { escapeText, escapeAttr, aiEngineName, formatAiScore, pickModelVerdicts, verdictBaseModel, verdictModelShort } from './render.js';
 
 // 打开面板的触发按钮，关闭时把焦点还给它
@@ -17,16 +20,19 @@ let detailOpener = null;
 /* 当前面板展示的书：异步拉历史返回时用它守卫，避免快速切书把旧结果填进新面板 */
 let detailBookId = null;
 
-/* 每张卡最多列多少轮：逐章校验按「型号 × 章节」累积（3 型号 × 10 章 = 30 轮），
-   上限跟着放大，否则用户只能看到最近几次，等于没写进详情 */
-const HISTORY_ROWS_SHOWN = 30;
+/* 每张卡最多列多少轮：逐章校验按「型号 × 章节」累积（3 型号 × 10 章 = 30 轮）。
+   后端每本保留 500 条（KEEP_PER_BOOK），界面只摊开最近 100 轮——
+   再多就没人往下翻了，更早的仍在库里可查（SQL 是追溯口径，界面是阅读口径）。 */
+const HISTORY_ROWS_SHOWN = 100;
 
 export function isAiDetailOpen() {
     const mask = document.getElementById('aiDetailMask');
     return !!mask && !mask.hidden;
 }
 
-function flagMeta(flag) {
+function flagMeta(flag, kind) {
+    // 失败行没有结论：单独一档，不能落进「未完成」——那会让失败看起来像还在跑
+    if (kind === 'failed') return { label: '失败', cls: 'fail' };
     if (flag === 2) return { label: 'AI', cls: 'ai' };
     if (flag === 3) return { label: '疑似 AI', cls: 'suspect' };
     if (flag === 1) return { label: '非 AI', cls: 'human' };
@@ -70,6 +76,11 @@ function renderCard(row) {
                 data-model="${escapeAttr(verdictBaseModel(row.model))}">
                <div class="ai-log-status">校验记录加载中…</div>
            </div>`;
+    // 综合值占位：与校验记录同一份流水算出来，历史到了才填
+    const average = pending
+        ? ''
+        : `<div class="ai-detail-avg" data-engine="${escapeAttr(row.engine || '')}"
+                data-model="${escapeAttr(verdictBaseModel(row.model))}">综合 AI 率加载中…</div>`;
     return `
         <div class="ai-detail-card${pending ? ' pending' : ''}">
             <div class="ai-detail-head">
@@ -80,6 +91,7 @@ function renderCard(row) {
             </div>
             <div class="ai-detail-meta">${escapeText(meta)}</div>
             ${tech ? `<div class="ai-detail-meta">${escapeText(tech)}</div>` : ''}
+            ${average}
             <p class="ai-detail-reason font-DNMrHsV173Pd4pgy">${escapeText(reason)}</p>
             ${history}
         </div>
@@ -104,6 +116,7 @@ function mergeConfiguredModels(rows) {
 /* 一轮流水在做什么：初筛是整本，rerun 是手点模型名重跑，verify/progress 是逐章的第几步 */
 function roundScope(entry) {
     const checked = Number(entry.chaptersChecked || 0);
+    if (entry.kind === 'failed') return '调用失败';
     if (entry.kind === 'rerun') return '手点重跑';
     if (entry.kind === 'sweep') return '整本初筛';
     if (entry.kind === 'progress') return `第 ${checked} 章·试读跳过`;
@@ -127,9 +140,12 @@ function renderHistory(entries) {
     }
     const shown = entries.slice(0, HISTORY_ROWS_SHOWN);
     const rows = shown.map(entry => {
-        const flag = flagMeta(Number(entry.aiFlag));
-        const tech = [modelLabel(entry.model), entry.promptId ? `提示词 ${entry.promptId}` : '']
-            .filter(Boolean).join(' · ');
+        const flag = flagMeta(Number(entry.aiFlag), entry.kind);
+        // 失败行没有型号/提示词可看，那一列直接给原因——这是它唯一有价值的信息
+        const tech = entry.kind === 'failed'
+            ? `失败：${entry.reason || '无错误信息'}`
+            : [modelLabel(entry.model), entry.promptId ? `提示词 ${entry.promptId}` : '']
+                .filter(Boolean).join(' · ');
         return `
             <li class="ai-log-row">
                 <span class="ai-log-time">${escapeText(shortTime(entry.checkedTime))}</span>
@@ -150,6 +166,28 @@ function renderHistory(entries) {
         </details>`;
 }
 
+/**
+ * 型号卡的综合值：轮次与总章数一起给，读者才知道这个数有多少证据支撑。
+ *
+ * <p>有过 AI 命中时单独标出来——综合值再低，也不能让一次确凿的逐章命中
+ * 看起来「没问题」（需求里的红线）。</p>
+ *
+ * @param {Array<object>} entries 同一「引擎 × 型号」的流水
+ * @returns {string} 一段 HTML
+ */
+function renderAverage(entries) {
+    const stat = weightedAiRate(entries);
+    if (!stat) {
+        return '<span class="ai-detail-avg-empty">暂无可计算的综合值</span>';
+    }
+    // 与 formatAiScore 一致：保留一位小数
+    const rate = Math.round(stat.rate * 10) / 10;
+    const hit = stat.hits > 0
+        ? `<span class="ai-detail-avg-hit"> · 含 ${stat.hits} 次 AI 命中</span>`
+        : '';
+    return `综合 <strong>${rate}%</strong>（${stat.rounds} 轮 / ${stat.chapters} 章${hit}）`;
+}
+
 /* 按引擎把流水塞回各自卡片的占位里。
    只改占位节点、不重渲染整个列表：整块 innerHTML 会重置滚动位置，
    用户刚翻到第 4 张卡时列表跳回顶部。 */
@@ -166,6 +204,11 @@ function fillHistory(bookId, entries) {
     body.querySelectorAll('.ai-log-host').forEach(host => {
         const key = `${host.getAttribute('data-engine') || ''}|${host.getAttribute('data-model') || ''}`;
         host.innerHTML = renderHistory(byModel.get(key) || []);
+    });
+    // 综合值与历史同一份数据：历史到了才填，避免先显示一个只算了一半的值
+    body.querySelectorAll('.ai-detail-avg').forEach(node => {
+        const key = `${node.getAttribute('data-engine') || ''}|${node.getAttribute('data-model') || ''}`;
+        node.innerHTML = renderAverage(byModel.get(key) || []);
     });
 }
 
@@ -192,7 +235,8 @@ export function openAiDetail(bookId, opener) {
         title.textContent = book && book.title ? `AI 判定详情 · ${book.title}` : 'AI 判定详情';
     }
     if (hint) {
-        hint.textContent = '卡片按型号展示最新一次结论；卡内「校验记录」列出该型号的每一轮判定（含被覆盖的旧结论）';
+        hint.textContent = '卡片按型号展示最新一次结论与按章数加权的综合 AI 率；'
+            + '卡内「校验记录」列出该型号的每一轮判定（含失败与被覆盖的旧结论）';
     }
     body.innerHTML = rows.length
         ? `<div class="ai-detail-list">${rows.map(renderCard).join('')}</div>`
@@ -219,6 +263,10 @@ function loadHistory(bookId) {
             if (detailBookId !== bookId) return;
             document.querySelectorAll('#aiDetailBody .ai-log-host').forEach(host => {
                 host.innerHTML = `<div class="ai-log-status">校验记录加载失败：${escapeText(err.message)}</div>`;
+            });
+            // 综合值依赖同一份流水：加载失败时不能一直挂着「加载中」
+            document.querySelectorAll('#aiDetailBody .ai-detail-avg').forEach(node => {
+                node.innerHTML = '<span class="ai-detail-avg-empty">综合值加载失败</span>';
             });
         });
 }

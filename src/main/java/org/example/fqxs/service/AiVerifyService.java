@@ -56,6 +56,7 @@ public class AiVerifyService {
     private final NovelRepository novelRepository;
     private final NovelAiVerdictRepository verdictRepository;
     private final AiVerdictWriter verdictWriter;
+    private final AiFaultGuard faultGuard;
 
     /**
      * 逐章校验推进一步。
@@ -161,8 +162,16 @@ public class AiVerifyService {
         int maxChars = aiDetectConfig.getMaxCharsPerBook();
         String sampleText = text.length() > maxChars ? text.substring(0, maxChars) : text;
 
-        // 远程调用不占事务
-        AiVerdict verdict = aiDetectClient.detectFree(engine, model, sampleText);
+        // 远程调用不占事务。失败留两处证：引擎级故障表（熔断计数与停用依据）与判定流水
+        // （时间线上「这一章试过但没出结论」）；只写故障表会让详情面板出现空档
+        AiVerdict verdict;
+        try {
+            verdict = aiDetectClient.detectFree(engine, model, sampleText);
+        } catch (CrawlException failure) {
+            faultGuard.recordFailure(engine, model, failure, bookId);
+            verdictWriter.writeFailed(bookId, engine, rowModel, failure.getMessage(), sampleKey, null, chapterNo);
+            throw failure;
+        }
         double score = roundScore(verdict.aiProbability());
         boolean aiHit = score >= aiDetectConfig.getFreeAiThreshold();
         int flag = (aiHit || keptHit) ? 2 : (finished ? 1 : 0);

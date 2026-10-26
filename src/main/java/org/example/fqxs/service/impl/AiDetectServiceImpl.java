@@ -117,8 +117,15 @@ public class AiDetectServiceImpl implements AiDetectService {
             }
         }
 
-        // 1. 取样：按策略抽章节拼接，VIP 试读会在取样器里被跳过
-        AiSampleCollector.CollectedSample sampleResult = sampleCollector.collect(bookId, sample);
+        // 1. 取样：按策略抽章节拼接，VIP 试读会在取样器里被跳过。
+        //    取样失败也算一次审核尝试：没有结论，但时间线上要留下"这轮试过"
+        AiSampleCollector.CollectedSample sampleResult;
+        try {
+            sampleResult = sampleCollector.collect(bookId, sample);
+        } catch (RuntimeException sampleFailure) {
+            verdictWriter.writeFailed(bookId, actualEngine, pickedModel, sampleFailure.getMessage(), null, null, 0);
+            throw sampleFailure;
+        }
         String sampleText = sampleResult.text();
         // 2. 判定：远程调用放在事务外。型号级容错——掷中的这个不行就换池里下一个再试，
         //    每次失败都留下事实（原因 + 上游返回片段）；连续失败到阈值由 AiFaultGuard 停用引擎。
@@ -133,6 +140,9 @@ public class AiDetectServiceImpl implements AiDetectService {
                 break;
             } catch (CrawlException failure) {
                 faultGuard.recordFailure(actualEngine, model, failure, bookId);
+                // 每个失败型号各留一条流水：型号池 4 个全挂时，时间线要能看出试过哪几个
+                verdictWriter.writeFailed(bookId, actualEngine, model, failure.getMessage(),
+                        sampleResult.mode(), sampleResult.span(), 0);
                 lastFailure = failure;
                 log.warn("型号判定失败: engine={}, model={}, 原因={}, 尝试 {}/{}",
                         actualEngine, model, failure.getMessage(), attemptOrder.indexOf(model) + 1,
@@ -150,7 +160,9 @@ public class AiDetectServiceImpl implements AiDetectService {
         verdictWriter.writeSweep(bookId, verdict.engine(), usedModel, aiFlag, roundedScore,
                 verdict.reason(), verdict.promptId(), sampleResult.mode(), sampleResult.span(),
                 // 手点徽章重跑单独记 rerun：详情里能看出这轮是人手动发起的，不是批量初筛
-                rerun ? NovelAiVerdictLog.KIND_RERUN : NovelAiVerdictLog.KIND_SWEEP);
+                rerun ? NovelAiVerdictLog.KIND_RERUN : NovelAiVerdictLog.KIND_SWEEP,
+                // 实际采用章数：加权平均的权重（span 会被截断，不能反解）
+                sampleResult.chapters());
 
         log.info("免费初筛完成: bookId={}, engine={}, 型号={}, 标记={}, 概率={}, 取样 {} 字/{}, 触发={}, 换过型号={}",
                 bookId, actualEngine, usedModel, aiFlag, roundedScore, sampleText.length(),

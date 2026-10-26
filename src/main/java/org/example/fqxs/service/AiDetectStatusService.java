@@ -116,8 +116,10 @@ public class AiDetectStatusService {
                     logRow.getPromptId() == null ? "" : logRow.getPromptId(),
                     logRow.getSampleMode() == null ? "" : logRow.getSampleMode(),
                     logRow.getSampleSpan() == null ? "" : logRow.getSampleSpan(),
+                    logRow.getSampleChapters() == null ? 0 : logRow.getSampleChapters(),
                     logRow.getAiFlag(),
-                    logRow.getAiScore() == null ? 0 : logRow.getAiScore(),
+                    // 失败行没有概率：保持 null，前端显示「—」而不是 0%
+                    logRow.getAiScore(),
                     logRow.getReason() == null ? "" : logRow.getReason(),
                     VERDICT_TIME_FORMAT.format(logRow.getCheckedTime()),
                     logRow.getChaptersChecked(),

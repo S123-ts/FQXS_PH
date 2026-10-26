@@ -43,6 +43,9 @@ const check = (name, ok, detail) => {
 const chromium = await loadChromium();
 const browser = await chromium.launch({
     executablePath: process.env.CHROME_PATH || undefined,
+    // 与 ui-smoke 一致：不跟随系统代理。localhost 请求被甩给失效代理时，
+    // 页面会一直停在 loading，表现成「脚本执行超时」而不是网络错误
+    args: ['--no-proxy-server'],
     headless: true
 });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -90,10 +93,18 @@ const waitRendered = () => page.waitForFunction(() => {
 
 try {
     await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    /* 默认作者筛选是「男作者」：批量与多选冒烟不依赖它，先切「全部」 */
+    /* 默认筛选（100 万字以上 + 连载中 + 评分 ≥9.0 + 男作者）会把首页筛到只剩个位数，
+       批量与多选冒烟只需要「有多行可勾选」，所以先全部复位，不依赖默认值的松紧 */
+    await page.selectOption('#filterWord', '');
+    await page.selectOption('#filterStatus', '');
     await page.selectOption('#filterAuthor', '');
+    await page.fill('#filterMinRating', '');
+    await page.dispatchEvent('#filterMinRating', 'change');
     await page.waitForFunction(() => document.querySelectorAll('#bookList .book-item').length > 1,
         { timeout: 20000 });
+    // 连续切四个筛选会各触发一次请求：等最后一次渲染落定，
+    // 否则「行数」会在取 checks 与全选之间变化，计数断言随机失败
+    await page.waitForLoadState('networkidle');
     await waitRendered();
 
     /* ---------- 1. 批量条与行内方框 ---------- */
@@ -115,7 +126,8 @@ try {
     await page.locator('#batchAll').check();
     const afterAll = await page.textContent('.batch-count');
     const allChecked = await page.isChecked('#batchAll');
-    check('全选本页计数等于行数', (afterAll || '').includes(`已选 ${checks} 本`), afterAll);
+    check('全选本页计数等于行数', (afterAll || '').includes(`已选 ${checks} 本`),
+        `${checks} 行 / ${afterAll}`);
     check('全选后全选框为勾选态', allChecked);
 
     await page.locator('#batchAll').uncheck();

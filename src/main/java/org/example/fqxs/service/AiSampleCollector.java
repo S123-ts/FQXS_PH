@@ -51,8 +51,9 @@ public class AiSampleCollector {
      * @param text 拼接后的正文（已按 max-chars-per-book 截断）
      * @param mode 档位：{@code official:head} / {@code third:recent} / {@code third:random2x5}
      * @param span 采用章号（1-based）的区间压缩，如 1-4,7,12
+     * @param chapters 实际采用的章数（加权平均的权重，不受 span 截断影响）
      */
-    public record CollectedSample(String text, String mode, String span) {
+    public record CollectedSample(String text, String mode, String span, int chapters) {
     }
 
     /**
@@ -177,7 +178,8 @@ public class AiSampleCollector {
                 bookId, effective.modeName(), source, used.size(), sampleText.length(),
                 previewSkipped, fetchSkipped, requests, requestBudget, total, used);
         String text = sampleText.length() > maxChars ? sampleText.substring(0, maxChars) : sampleText.toString();
-        return new CollectedSample(text, source + ":" + effective.modeName(), spanOf(usedIndices));
+        return new CollectedSample(text, source + ":" + effective.modeName(), spanOf(usedIndices),
+                usedIndices.size());
     }
 
     /**

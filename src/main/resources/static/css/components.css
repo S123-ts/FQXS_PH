@@ -1180,6 +1180,14 @@ button.ai-badge:disabled {
     border-color: #cbe5cb;
     color: #1a7f37;
 }
+/* 调用失败：不是结论，用虚线灰框与「非 AI」区分开——
+   实线灰底会被读成「判过且非 AI」，失败的含义恰恰是「没判成」 */
+.ai-badge.fail {
+    background: transparent;
+    border: 1px dashed var(--border);
+    color: var(--text-2);
+    font-weight: 500;
+}
 
 /* AI 工具组：「选引擎 → 取样 → 校验本页 / AI 初筛」是一个完整工作流，
    用淡底 + 描边包成一个整体，与旁边的单颗按钮区分开。
@@ -1898,6 +1906,27 @@ button.ai-badge:disabled {
     color: var(--text-2);
     white-space: pre-line;
     word-break: break-word;
+}
+/* 综合 AI 率：按章数加权的整体值，与卡头的「最近一次」并排但视觉更弱——
+   头部是结论，这一行是证据汇总。等宽数字避免不同卡片的小数点错位 */
+.ai-detail-avg {
+    margin-top: 6px;
+    font-size: var(--fs-xs);
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+}
+.ai-detail-avg strong {
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    color: var(--accent);
+}
+/* 有过 AI 命中：综合值旁边必须留痕，避免「平均下来不高」掩盖确凿命中 */
+.ai-detail-avg-hit {
+    color: var(--danger, #b3261e);
+    font-weight: 600;
+}
+.ai-detail-avg-empty {
+    color: var(--text-3);
 }
 .ai-detail-empty {
     font-size: var(--fs-sm);

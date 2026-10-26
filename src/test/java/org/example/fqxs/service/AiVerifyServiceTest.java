@@ -6,6 +6,7 @@ import org.example.fqxs.config.AiDetectConfig;
 import org.example.fqxs.entity.AiEngine;
 import org.example.fqxs.entity.Novel;
 import org.example.fqxs.entity.NovelAiVerdict;
+import org.example.fqxs.exception.CrawlException;
 import org.example.fqxs.model.AiVerdict;
 import org.example.fqxs.model.ChapterSample;
 import org.example.fqxs.repository.NovelAiVerdictRepository;
@@ -20,12 +21,14 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -79,6 +82,9 @@ class AiVerifyServiceTest {
     @Mock
     private AiVerdictWriter verdictWriter;
 
+    @Mock
+    private AiFaultGuard faultGuard;
+
     private AiDetectConfig config;
 
     private AiVerifyService service;
@@ -87,7 +93,7 @@ class AiVerifyServiceTest {
     void setUp() {
         config = new AiDetectConfig();
         service = new AiVerifyService(aiDetectClient, thirdPartyChapterClient, chapterContentService, sampleCollector,
-                config, engineRegistry, engineRouter, novelRepository, verdictRepository, verdictWriter);
+                config, engineRegistry, engineRouter, novelRepository, verdictRepository, verdictWriter, faultGuard);
         AiEngine engine = AiEngine.builder()
                 .id(ENGINE).name("智谱 GLM").baseUrl("https://example.test/v1/chat/completions")
                 .model(MODEL_A).protocol("openai_chat").builtin(true).enabled(true).autoBan(true).priority(0)
@@ -250,6 +256,22 @@ class AiVerifyServiceTest {
         // 跳过判定，但进度要推进，否则同一章会被反复请求
         verify(verdictWriter).writeProgress("b1", ENGINE, VERIFY_A, 0, 0.0, "", 1, 1, null, "official:head");
         verifyNoInteractions(aiDetectClient);
+    }
+
+    @Test
+    void failedChapterCallLeavesFaultAndLogEvidence() {
+        when(verdictRepository.findByBookIdAndEngineAndModel("b1", ENGINE, VERIFY_A))
+                .thenReturn(Optional.empty());
+        when(aiDetectClient.detectFree(eq(ENGINE), eq(MODEL_A), anyString()))
+                .thenThrow(new CrawlException("HTTP 429 额度耗尽", 429, "quota"));
+
+        assertThatThrownBy(() -> service.stepVerify("b1", ENGINE, null))
+                .isInstanceOf(CrawlException.class);
+
+        // 失败要留两处证：引擎级故障表（熔断计数依据）+ 判定流水（时间线上「这一章试过」）
+        verify(faultGuard).recordFailure(eq(ENGINE), eq(MODEL_A), any(CrawlException.class), eq("b1"));
+        verify(verdictWriter).writeFailed(eq("b1"), eq(ENGINE), eq(VERIFY_A), anyString(),
+                eq("official:head"), isNull(), eq(1));
     }
 
     private static NovelAiVerdict row(int flag, double score, String reason, int checked) {

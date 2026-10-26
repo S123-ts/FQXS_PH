@@ -46,7 +46,7 @@ public class AiVerdictWriter {
     public void writeSweep(String bookId, String engine, String model, int aiFlag, double aiScore,
                            String reason, String promptId, String sampleMode, String sampleSpan) {
         writeSweep(bookId, engine, model, aiFlag, aiScore, reason, promptId, sampleMode, sampleSpan,
-                NovelAiVerdictLog.KIND_SWEEP);
+                NovelAiVerdictLog.KIND_SWEEP, 0);
     }
 
     /**
@@ -58,8 +58,20 @@ public class AiVerdictWriter {
     public void writeSweep(String bookId, String engine, String model, int aiFlag, double aiScore,
                            String reason, String promptId, String sampleMode, String sampleSpan,
                            String kind) {
+        writeSweep(bookId, engine, model, aiFlag, aiScore, reason, promptId, sampleMode, sampleSpan, kind, 0);
+    }
+
+    /**
+     * 整本判定落库，并记录这一轮实际采用的章数。
+     *
+     * @param sampleChapters 实际采用的章数（加权平均的权重）；0 表示未知
+     */
+    public void writeSweep(String bookId, String engine, String model, int aiFlag, double aiScore,
+                           String reason, String promptId, String sampleMode, String sampleSpan,
+                           String kind, int sampleChapters) {
         Runnable write = () -> transactionTemplate.executeWithoutResult(status -> {
-            upsert(bookId, engine, model, aiFlag, aiScore, reason, 0, promptId, sampleMode, sampleSpan, kind, 0);
+            upsert(bookId, engine, model, aiFlag, aiScore, reason, 0, promptId, sampleMode, sampleSpan, kind, 0,
+                    sampleChapters);
             novelService.applyFreeVerdict(bookId, aiFlag, aiScore, engine);
         });
         try {
@@ -82,9 +94,20 @@ public class AiVerdictWriter {
     public void writeVerify(String bookId, String engine, String model, int aiFlag, double aiScore,
                             String reason, int chaptersChecked, int chapterNo, String promptId, boolean aiHit,
                             String sampleMode) {
+        // 逐章校验每轮只判一章：权重恒为 1，不需要调用方传
+        writeVerify(bookId, engine, model, aiFlag, aiScore, reason, chaptersChecked, chapterNo, promptId, aiHit,
+                sampleMode, 1);
+    }
+
+    /**
+     * 逐章校验一步，并记录本轮实际校验的章数（通常为 1）。
+     */
+    public void writeVerify(String bookId, String engine, String model, int aiFlag, double aiScore,
+                            String reason, int chaptersChecked, int chapterNo, String promptId, boolean aiHit,
+                            String sampleMode, int sampleChapters) {
         transactionTemplate.executeWithoutResult(status -> {
             upsert(bookId, engine, model, aiFlag, aiScore, reason, chaptersChecked, promptId, sampleMode, null,
-                    NovelAiVerdictLog.KIND_VERIFY, chapterNo);
+                    NovelAiVerdictLog.KIND_VERIFY, chapterNo, sampleChapters);
             novelService.applyManualVerifyVerdict(bookId, engine, aiFlag, chaptersChecked, aiScore, aiHit);
         });
     }
@@ -97,12 +120,38 @@ public class AiVerdictWriter {
                               String sampleMode) {
         transactionTemplate.executeWithoutResult(status ->
                 upsert(bookId, engine, model, aiFlag, aiScore, reason, chaptersChecked, promptId, sampleMode, null,
-                        NovelAiVerdictLog.KIND_PROGRESS, chapterNo));
+                        NovelAiVerdictLog.KIND_PROGRESS, chapterNo, 0));
+    }
+
+    /**
+     * 记一次失败的审核尝试：只追加流水，<b>不动明细与主表</b>。
+     *
+     * <p>为什么不能走 {@link #upsert}：明细行代表「这个型号对这本书的当前结论」，
+     * 一次失败不该把已有结论覆盖成 {@code ai_flag=0}。失败的价值在时间线上——
+     * 「这轮试过但没出结论」要看得见，结论本身保持上一次成功的结果。</p>
+     *
+     * <p>写入失败只记日志不抛：留痕失败不能让判定链路本身崩掉，
+     * 与 {@code AiFaultGuard.recordFailure} 的取舍一致。</p>
+     *
+     * @param reason 失败原因摘要（会截断到列宽 200）
+     * @param sampleMode 本轮取样档位，可为 null
+     * @param sampleSpan 本轮取样跨度，可为 null
+     * @param chapterNo 本轮校验的章号（逐章失败才有），0 表示无单章概念
+     */
+    public void writeFailed(String bookId, String engine, String model, String reason,
+                            String sampleMode, String sampleSpan, int chapterNo) {
+        try {
+            appendLog(bookId, engine, model, 0, null, reason, 0, null,
+                    sampleMode, sampleSpan, NovelAiVerdictLog.KIND_FAILED, chapterNo, 0);
+        } catch (RuntimeException storeFailure) {
+            log.warn("失败流水写入失败: bookId={}, engine={}, model={}, 原因={}",
+                    bookId, engine, model, storeFailure.getMessage());
+        }
     }
 
     private void upsert(String bookId, String engine, String model, int aiFlag, double aiScore,
                         String reason, int chaptersChecked, String promptId,
-                        String sampleMode, String sampleSpan, String kind, int chapterNo) {
+                        String sampleMode, String sampleSpan, String kind, int chapterNo, int sampleChapters) {
         NovelAiVerdict verdictRow = verdictRepository.findByBookIdAndEngineAndModel(bookId, engine, model)
                 .orElseGet(() -> {
                     NovelAiVerdict fresh = new NovelAiVerdict();
@@ -127,7 +176,7 @@ public class AiVerdictWriter {
         verdictRepository.save(verdictRow);
 
         appendLog(bookId, engine, model, aiFlag, aiScore, reason, chaptersChecked, promptId,
-                sampleMode, sampleSpan, kind, chapterNo);
+                sampleMode, sampleSpan, kind, chapterNo, sampleChapters);
     }
 
     /**
@@ -137,9 +186,9 @@ public class AiVerdictWriter {
      * 否则时间线上会出现「第 3 章校验，取样档位是空」这种断档。逐章那一轮"用了哪一章"
      * 由 {@code chapterNo} 单独记——写进 sampleSpan 会把整本初筛的取样跨度覆盖掉。</p>
      */
-    private void appendLog(String bookId, String engine, String model, int aiFlag, double aiScore,
+    private void appendLog(String bookId, String engine, String model, int aiFlag, Double aiScore,
                            String reason, int chaptersChecked, String promptId,
-                           String sampleMode, String sampleSpan, String kind, int chapterNo) {
+                           String sampleMode, String sampleSpan, String kind, int chapterNo, int sampleChapters) {
         NovelAiVerdictLog logRow = new NovelAiVerdictLog();
         logRow.setBookId(bookId);
         logRow.setEngine(engine);
@@ -151,6 +200,8 @@ public class AiVerdictWriter {
         logRow.setPromptId(promptId);
         logRow.setSampleMode(sampleMode);
         logRow.setSampleSpan(sampleSpan);
+        // 0 表示这一轮没有采用章节（进度/失败）：落 null，与「未知」区分开
+        logRow.setSampleChapters(sampleChapters > 0 ? sampleChapters : null);
         // 只有逐章校验有单章概念：0 表示这一轮不是"查某一章"，落 null 而不是 0
         logRow.setChapterNo(chapterNo > 0 ? chapterNo : null);
         logRow.setKind(kind);
@@ -159,7 +210,7 @@ public class AiVerdictWriter {
         trimLog(bookId);
     }
 
-    /** 保留最近 {@link NovelAiVerdictLog#KEEP_PER_BOOK} 轮：详情面板放不下更多，也没人会翻更远。 */
+    /** 保留最近 {@link NovelAiVerdictLog#KEEP_PER_BOOK} 轮：上限见常量注释，超出按新到旧裁剪。 */
     private void trimLog(String bookId) {
         List<Long> ids = verdictLogRepository.findIdsByBookIdNewestFirst(bookId);
         if (ids.size() <= NovelAiVerdictLog.KEEP_PER_BOOK) {

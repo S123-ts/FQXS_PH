@@ -105,7 +105,7 @@ class AiDetectServiceImplTest {
         lenient().when(engineRegistry.pickModel(anyString())).thenReturn(TEST_MODEL);
         lenient().when(engineRouter.resolveAvoiding(anyString(), anyList())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(sampleCollector.collect(anyString(), any())).thenReturn(
-                new AiSampleCollector.CollectedSample("正文正文", "free:mid_recent", "1-2"));
+                new AiSampleCollector.CollectedSample("正文正文", "free:mid_recent", "1-2", 2));
     }
 
     /** 引擎夹具：统一用 OpenAI 兼容通道（朱雀通道已移除）。 */
@@ -130,7 +130,7 @@ class AiDetectServiceImplTest {
         assertThat(result.aiFlag()).isEqualTo(2);
         assertThat(result.aiScore()).isEqualTo(82.44);
         verify(verdictWriter).writeSweep("b1", GLM, TEST_MODEL, 2, 82.44, "段落整齐", null,
-                "free:mid_recent", "1-2", "sweep");
+                "free:mid_recent", "1-2", "sweep", 2);
     }
 
     @Test

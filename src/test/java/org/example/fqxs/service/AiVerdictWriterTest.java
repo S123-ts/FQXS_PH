@@ -20,6 +20,8 @@ import java.util.stream.LongStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
@@ -52,8 +54,9 @@ class AiVerdictWriterTest {
     @BeforeEach
     void setUp() {
         writer = new AiVerdictWriter(verdictRepository, verdictLogRepository, novelService, transactionTemplate);
-        // 事务模板在本类里只是「怎么一致地写」，测的是写入内容，直接就地执行
-        doAnswer(invocation -> {
+        // 事务模板在本类里只是「怎么一致地写」，测的是写入内容，直接就地执行；
+        // 失败留痕不走事务（只追加流水），所以这里必须 lenient
+        lenient().doAnswer(invocation -> {
             Consumer<org.springframework.transaction.TransactionStatus> action = invocation.getArgument(0);
             action.accept(null);
             return null;
@@ -188,5 +191,55 @@ class AiVerdictWriterTest {
         writer.writeSweep(BOOK_ID, GLM, MODEL, 2, 80.0, "错".repeat(300), null, null, null);
 
         assertThat(captureLog().getReason()).hasSize(200);
+    }
+
+    @Test
+    void sweepRecordsHowManyChaptersWereSampled() {
+        // 加权平均的分母：整本初筛按实际采用的章数计（span 会被截断，不能反解）
+        writer.writeSweep(BOOK_ID, GLM, MODEL, 2, 80.0, "整本初筛", "p1-total",
+                "official:head", "1-10", NovelAiVerdictLog.KIND_SWEEP, 10);
+
+        assertThat(captureLog().getSampleChapters()).isEqualTo(10);
+    }
+
+    @Test
+    void verifyWeighsOneChapter() {
+        writer.writeVerify(BOOK_ID, GLM, MODEL, 1, 22.0, "第 3 章正常", 3, 3, "p1-total", false, "official:head");
+
+        // 逐章校验每轮只判一章，权重恒为 1
+        assertThat(captureLog().getSampleChapters()).isEqualTo(1);
+    }
+
+    @Test
+    void progressRowsCarryNoWeight() {
+        writer.writeProgress(BOOK_ID, GLM, MODEL, 1, 18.0, "", 10, 10, "p1-total", "official:head");
+
+        // 只推进游标、没有新证据：落 null，不参与加权平均
+        assertThat(captureLog().getSampleChapters()).isNull();
+    }
+
+    @Test
+    void failedAttemptAppendsLogWithoutTouchingDetail() {
+        writer.writeFailed(BOOK_ID, GLM, MODEL, "429 额度耗尽", "official:head", "1-10", 0);
+
+        NovelAiVerdictLog row = captureLog();
+        assertThat(row.getKind()).isEqualTo(NovelAiVerdictLog.KIND_FAILED);
+        assertThat(row.getAiFlag()).isZero();
+        // 失败没有概率：留 null，页面显示「—」而不是 0%
+        assertThat(row.getAiScore()).isNull();
+        assertThat(row.getReason()).isEqualTo("429 额度耗尽");
+        assertThat(row.getSampleMode()).isEqualTo("official:head");
+        // 明细代表"当前结论"，一次失败不能把它覆盖成 ai_flag=0
+        verify(verdictRepository, never()).save(any());
+        verify(novelService, never()).applyFreeVerdict(any(), anyInt(), anyDouble(), any());
+    }
+
+    @Test
+    void failedAttemptSwallowsStoreError() {
+        when(verdictLogRepository.save(any(NovelAiVerdictLog.class)))
+                .thenThrow(new IllegalStateException("库挂了"));
+
+        // 留痕失败不能把判定链路本身打断
+        writer.writeFailed(BOOK_ID, GLM, MODEL, "timeout", null, null, 0);
     }
 }

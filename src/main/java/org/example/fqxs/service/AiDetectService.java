@@ -203,8 +203,8 @@ public interface AiDetectService {
      * @param kind            动作：sweep=整本初筛 / verify=逐章校验一步 / progress=仅推进进度
      */
     record VerdictLogEntry(String bookId, String engine, String model, String promptId,
-                           String sampleMode, String sampleSpan,
-                           int aiFlag, double aiScore, String reason,
+                           String sampleMode, String sampleSpan, int sampleChapters,
+                           int aiFlag, Double aiScore, String reason,
                            String checkedTime, int chaptersChecked, String kind) {
     }
 
