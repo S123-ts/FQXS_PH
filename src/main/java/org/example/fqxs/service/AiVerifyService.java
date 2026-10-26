@@ -172,16 +172,25 @@ public class AiVerifyService {
             verdictWriter.writeFailed(bookId, engine, rowModel, failure.getMessage(), sampleKey, null, chapterNo);
             throw failure;
         }
+        // 与初筛同一条口径：判定成功即清零连续失败计数。
+        // 只在失败侧加计数而不在成功侧清零，会让零星失败累积到阈值、把引擎误停用
+        faultGuard.recordSuccess(engine);
         double score = roundScore(verdict.aiProbability());
         boolean aiHit = score >= aiDetectConfig.getFreeAiThreshold();
+        // 明细口径：命中后保持 2，后续干净章不能撤销「这本书判过 AI」的结论
         int flag = (aiHit || keptHit) ? 2 : (finished ? 1 : 0);
-        // 命中后继续查：后续章节的分数不能覆盖首次命中的分数与理由
         double rowScore = keptHit && !aiHit ? previousScore : score;
         String rowReason = keptHit && !aiHit ? previousReason : verdict.reason();
+        /* 流水口径：这一章实际判成什么。命中过也不能把本章的 10% 写成首次命中的 95%——
+           详情面板逐章展示、加权平均按章计权，都依赖这份真实分数；
+           两处口径混用会让时间线出现「10 章全 95%」的假象 */
+        int roundFlag = aiHit ? 2 : (finished ? 1 : 0);
 
         // 每一轮都写明细 + 流水：详情面板的「校验记录」就是靠流水逐章展示
-        verdictWriter.writeVerify(bookId, engine, rowModel, flag, rowScore, rowReason, nextChecked,
-                chapterNo, verdict.promptId(), aiHit, sampleKey);
+        verdictWriter.writeVerify(bookId, engine, rowModel,
+                new AiVerdictWriter.RoundVerdict(flag, rowScore, rowReason),
+                new AiVerdictWriter.RoundVerdict(roundFlag, score, verdict.reason()),
+                nextChecked, chapterNo, verdict.promptId(), aiHit, sampleKey);
 
         String message = aiHit
                 ? "第 " + chapterNo + " 章命中 AI（风险 " + score + "%），已记入详情"

@@ -25,6 +25,21 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AiVerdictWriter {
 
+    /**
+     * 一轮判定的结论三元组。
+     *
+     * <p>为什么需要两份：<b>明细</b>（{@code novel_ai_verdict}）代表「这个型号对这本书的
+     * 当前结论」，命中 AI 之后不能被后续干净章覆盖；<b>流水</b>（{@code novel_ai_verdict_log}）
+     * 代表「这一轮实际判成什么」，每一章都是独立证据。两者共用一份分数会让时间线上出现
+     * 「10 章全 95%」的假象（实际只有 1 章命中），详情面板与加权平均都会被带偏。</p>
+     *
+     * @param flag   1=非 AI / 2=AI / 3=疑似 / 0=未完成（逐章未查完的中间步）
+     * @param score  AI 概率（0–100）
+     * @param reason 判定理由摘要
+     */
+    public record RoundVerdict(int flag, double score, String reason) {
+    }
+
     private final NovelAiVerdictRepository verdictRepository;
     private final NovelAiVerdictLogRepository verdictLogRepository;
     private final NovelService novelService;
@@ -70,8 +85,8 @@ public class AiVerdictWriter {
                            String reason, String promptId, String sampleMode, String sampleSpan,
                            String kind, int sampleChapters) {
         Runnable write = () -> transactionTemplate.executeWithoutResult(status -> {
-            upsert(bookId, engine, model, aiFlag, aiScore, reason, 0, promptId, sampleMode, sampleSpan, kind, 0,
-                    sampleChapters);
+            upsert(bookId, engine, model, new RoundVerdict(aiFlag, aiScore, reason), null, 0, promptId,
+                    sampleMode, sampleSpan, kind, 0, sampleChapters);
             novelService.applyFreeVerdict(bookId, aiFlag, aiScore, engine);
         });
         try {
@@ -105,21 +120,55 @@ public class AiVerdictWriter {
     public void writeVerify(String bookId, String engine, String model, int aiFlag, double aiScore,
                             String reason, int chaptersChecked, int chapterNo, String promptId, boolean aiHit,
                             String sampleMode, int sampleChapters) {
+        writeVerify(bookId, engine, model, new RoundVerdict(aiFlag, aiScore, reason), null,
+                chaptersChecked, chapterNo, promptId, aiHit, sampleMode, sampleChapters);
+    }
+
+    /**
+     * 逐章校验一步：<b>明细与流水各记各的</b>。
+     *
+     * <p>命中 AI 之后，后续干净章不能撤销「这本书判过 AI」的结论，所以明细继续保留命中的
+     * 分数与理由；但流水记录的是「这一章实际判成什么」，必须用本章真实分数，否则详情面板
+     * 会显示「每章都是 95%」、加权平均也会被推到命中值。</p>
+     *
+     * @param detail 明细口径（命中后保持首次命中的分数与理由）
+     * @param round  流水口径（本章实际判定的分数与理由）；null 表示与明细一致
+     * @param aiHit  本次是否命中（决定主表是否覆盖综合结论）
+     */
+    public void writeVerify(String bookId, String engine, String model, RoundVerdict detail, RoundVerdict round,
+                            int chaptersChecked, int chapterNo, String promptId, boolean aiHit,
+                            String sampleMode) {
+        writeVerify(bookId, engine, model, detail, round, chaptersChecked, chapterNo, promptId, aiHit,
+                sampleMode, 1);
+    }
+
+    /**
+     * 逐章校验一步，并显式指定流水权重章数（逐章恒为 1，保留参数是为了与初筛同构）。
+     */
+    public void writeVerify(String bookId, String engine, String model, RoundVerdict detail, RoundVerdict round,
+                            int chaptersChecked, int chapterNo, String promptId, boolean aiHit,
+                            String sampleMode, int sampleChapters) {
         transactionTemplate.executeWithoutResult(status -> {
-            upsert(bookId, engine, model, aiFlag, aiScore, reason, chaptersChecked, promptId, sampleMode, null,
+            upsert(bookId, engine, model, detail, round, chaptersChecked, promptId, sampleMode, null,
                     NovelAiVerdictLog.KIND_VERIFY, chapterNo, sampleChapters);
-            novelService.applyManualVerifyVerdict(bookId, engine, aiFlag, chaptersChecked, aiScore, aiHit);
+            novelService.applyManualVerifyVerdict(bookId, engine, detail.flag(), chaptersChecked,
+                    detail.score(), aiHit);
         });
     }
 
     /**
-     * 仅推进进度（已查完上限）：更新明细，不动主表综合结论。
+     * 仅推进进度（试读/VIP 跳过、或已查完上限）：更新明细，不动主表综合结论。
+     *
+     * <p>流水固定记 {@code flag=0}：这一章没有判定，它只是进度。原先流水沿用明细的
+     * {@code keptHit ? 2}，会让前端把「试读跳过」那一行当成命中证据参与选行。</p>
      */
     public void writeProgress(String bookId, String engine, String model, int aiFlag, double aiScore,
                               String reason, int chaptersChecked, int chapterNo, String promptId,
                               String sampleMode) {
         transactionTemplate.executeWithoutResult(status ->
-                upsert(bookId, engine, model, aiFlag, aiScore, reason, chaptersChecked, promptId, sampleMode, null,
+                upsert(bookId, engine, model, new RoundVerdict(aiFlag, aiScore, reason),
+                        new RoundVerdict(0, aiScore, reason),
+                        chaptersChecked, promptId, sampleMode, null,
                         NovelAiVerdictLog.KIND_PROGRESS, chapterNo, 0));
     }
 
@@ -149,8 +198,8 @@ public class AiVerdictWriter {
         }
     }
 
-    private void upsert(String bookId, String engine, String model, int aiFlag, double aiScore,
-                        String reason, int chaptersChecked, String promptId,
+    private void upsert(String bookId, String engine, String model, RoundVerdict detail, RoundVerdict round,
+                        int chaptersChecked, String promptId,
                         String sampleMode, String sampleSpan, String kind, int chapterNo, int sampleChapters) {
         NovelAiVerdict verdictRow = verdictRepository.findByBookIdAndEngineAndModel(bookId, engine, model)
                 .orElseGet(() -> {
@@ -160,9 +209,9 @@ public class AiVerdictWriter {
                     fresh.setModel(model);
                     return fresh;
                 });
-        verdictRow.setAiFlag(aiFlag);
-        verdictRow.setAiScore(aiScore);
-        verdictRow.setReason(truncateReason(reason));
+        verdictRow.setAiFlag(detail.flag());
+        verdictRow.setAiScore(detail.score());
+        verdictRow.setReason(truncateReason(detail.reason()));
         verdictRow.setChaptersChecked(chaptersChecked);
         verdictRow.setPromptId(promptId);
         // 逐章行同样记档位：游标要靠它区分「这批进度属于哪套取样规则」
@@ -175,7 +224,9 @@ public class AiVerdictWriter {
         verdictRow.setCheckedTime(DateUtil.now());
         verdictRepository.save(verdictRow);
 
-        appendLog(bookId, engine, model, aiFlag, aiScore, reason, chaptersChecked, promptId,
+        // 流水默认与明细同口径；逐章校验会显式传入"本章实际"的那一份
+        RoundVerdict logged = round == null ? detail : round;
+        appendLog(bookId, engine, model, logged.flag(), logged.score(), logged.reason(), chaptersChecked, promptId,
                 sampleMode, sampleSpan, kind, chapterNo, sampleChapters);
     }
 

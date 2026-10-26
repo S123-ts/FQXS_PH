@@ -23,7 +23,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -126,7 +125,11 @@ class AiVerifyServiceTest {
         assertThat(result.chapterIndex()).isEqualTo(1);
         assertThat(result.stepIndex()).isEqualTo(1);
         assertThat(result.totalChapters()).isEqualTo(10);
-        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 0, 12.0, "不像 AI", 1, 1, null, false, "official:head");
+        verify(verdictWriter).writeVerify(eq("b1"), eq(ENGINE), eq(VERIFY_A),
+                eq(round(0, 12.0, "不像 AI")), eq(round(0, 12.0, "不像 AI")),
+                eq(1), eq(1), isNull(), eq(false), eq("official:head"));
+        // 成功要清零连续失败计数，否则零星失败会累积到阈值、把引擎误停用
+        verify(faultGuard).recordSuccess(ENGINE);
     }
 
     @Test
@@ -141,7 +144,9 @@ class AiVerifyServiceTest {
         assertThat(result.aiHit()).isTrue();
         // 命中不再是终态：只查了 1/10，仍可继续
         assertThat(result.finished()).isFalse();
-        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 2, 88.0, "明显 AI", 1, 1, null, true, "official:head");
+        verify(verdictWriter).writeVerify(eq("b1"), eq(ENGINE), eq(VERIFY_A),
+                eq(round(2, 88.0, "明显 AI")), eq(round(2, 88.0, "明显 AI")),
+                eq(1), eq(1), isNull(), eq(true), eq("official:head"));
     }
 
     @Test
@@ -157,9 +162,13 @@ class AiVerifyServiceTest {
         AiDetectService.VerifyStepResult result = service.stepVerify("b1", ENGINE, null);
 
         assertThat(result.chapterIndex()).isEqualTo(2);
-        // 已判过 AI 的结论不能被后续"干净章"抹掉，分数保留首次命中的 88
+        // 已判过 AI 的结论不能被后续"干净章"抹掉，明细分数保留首次命中的 88
         assertThat(result.aiScore()).isEqualTo(88.0);
-        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 2, 88.0, "首次命中", 2, 2, null, false, "official:head");
+        /* 流水必须记本章实际的 10%：明细与流水共用一份分数会让详情面板显示
+           「每章都 88%」，加权平均也会被推到命中值（这一章其实只判了 10%） */
+        verify(verdictWriter).writeVerify(eq("b1"), eq(ENGINE), eq(VERIFY_A),
+                eq(round(2, 88.0, "首次命中")), eq(round(0, 10.0, "这一章像人写")),
+                eq(2), eq(2), isNull(), eq(false), eq("official:head"));
     }
 
     @Test
@@ -178,7 +187,9 @@ class AiVerifyServiceTest {
         assertThat(result.finished()).isTrue();
         // 单个型号查完 ≠ 整批结束：型号池里可能还有别的型号没查，allDone 只能由"无可推进型号"给出
         assertThat(result.allDone()).isFalse();
-        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 1, 9.0, "像人写", 10, 10, null, false, "official:head");
+        verify(verdictWriter).writeVerify(eq("b1"), eq(ENGINE), eq(VERIFY_A),
+                eq(round(1, 9.0, "像人写")), eq(round(1, 9.0, "像人写")),
+                eq(10), eq(10), isNull(), eq(false), eq("official:head"));
     }
 
     @Test
@@ -197,9 +208,12 @@ class AiVerifyServiceTest {
 
         assertThat(result.model()).isEqualTo(MODEL_B);
         assertThat(result.chapterIndex()).isEqualTo(1);
-        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_B, 0, 20.0, "B 看像人写", 1, 1, null, false, "official:head");
+        verify(verdictWriter).writeVerify(eq("b1"), eq(ENGINE), eq(VERIFY_B),
+                eq(round(0, 20.0, "B 看像人写")), eq(round(0, 20.0, "B 看像人写")),
+                eq(1), eq(1), isNull(), eq(false), eq("official:head"));
         verify(verdictWriter, never()).writeVerify(eq("b1"), eq(ENGINE), eq(VERIFY_A),
-                anyInt(), anyDouble(), any(), anyInt(), anyInt(), any(), any(Boolean.class), any());
+                any(AiVerdictWriter.RoundVerdict.class), any(), anyInt(), anyInt(), any(),
+                any(Boolean.class), any());
     }
 
     @Test
@@ -236,8 +250,9 @@ class AiVerifyServiceTest {
         AiDetectService.VerifyStepResult result = service.stepVerify("b1", ENGINE, null);
 
         assertThat(result.chapterIndex()).isEqualTo(1);
-        verify(verdictWriter).writeVerify("b1", ENGINE, VERIFY_A, 0, 15.0, "像人写", 1, 1, null, false,
-                "official:head");
+        verify(verdictWriter).writeVerify(eq("b1"), eq(ENGINE), eq(VERIFY_A),
+                eq(round(0, 15.0, "像人写")), eq(round(0, 15.0, "像人写")),
+                eq(1), eq(1), isNull(), eq(false), eq("official:head"));
     }
 
     @Test
@@ -272,6 +287,11 @@ class AiVerifyServiceTest {
         verify(faultGuard).recordFailure(eq(ENGINE), eq(MODEL_A), any(CrawlException.class), eq("b1"));
         verify(verdictWriter).writeFailed(eq("b1"), eq(ENGINE), eq(VERIFY_A), anyString(),
                 eq("official:head"), isNull(), eq(1));
+    }
+
+    /** 逐章写入的两组口径：明细（命中后保持结论）与流水（本章实际判成什么）。 */
+    private static AiVerdictWriter.RoundVerdict round(int flag, double score, String reason) {
+        return new AiVerdictWriter.RoundVerdict(flag, score, reason);
     }
 
     private static NovelAiVerdict row(int flag, double score, String reason, int checked) {

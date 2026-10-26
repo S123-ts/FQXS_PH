@@ -219,6 +219,22 @@ class AiVerdictWriterTest {
     }
 
     @Test
+    void progressRowKeepsDetailConclusionButLogsNoVerdict() {
+        // 命中过之后又碰到试读章：明细仍是 AI（结论不撤销），流水记 0（这一章没判成）
+        writer.writeProgress(BOOK_ID, GLM, MODEL, 2, 88.0, "首次命中", 3, 3, "p1-total", "official:head");
+
+        NovelAiVerdictLog row = captureLog();
+        assertThat(row.getKind()).isEqualTo(NovelAiVerdictLog.KIND_PROGRESS);
+        // 流水不能沿用明细的 2：前端按 aiFlag=2 + #verify 认「命中证据」，会把跳过行当结论
+        assertThat(row.getAiFlag()).isZero();
+
+        ArgumentCaptor<NovelAiVerdict> detail = ArgumentCaptor.forClass(NovelAiVerdict.class);
+        verify(verdictRepository).save(detail.capture());
+        assertThat(detail.getValue().getAiFlag()).isEqualTo(2);
+        assertThat(detail.getValue().getAiScore()).isEqualTo(88.0);
+    }
+
+    @Test
     void failedAttemptAppendsLogWithoutTouchingDetail() {
         writer.writeFailed(BOOK_ID, GLM, MODEL, "429 额度耗尽", "official:head", "1-10", 0);
 
