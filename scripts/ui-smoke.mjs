@@ -92,6 +92,25 @@ const waitRendered = () => page.waitForFunction(() => {
     return list && !list.querySelector('.loading');
 }, { timeout: 60000 });
 
+/* 连续切多个筛选会并发发出多个 allBooks 请求，响应可能乱序到达：
+   最终状态会停在某个中间筛选上（实测 total 读到 3 而真实是 768）。
+   等「总数 + 行数 + 关注按钮数」连续两次取样一致，再开始断言。 */
+const waitStable = async (timeout = 15000) => {
+    const started = Date.now();
+    let previous = null;
+    while (Date.now() - started < timeout) {
+        const signature = await page.evaluate(() => {
+            const list = document.getElementById('bookList');
+            const total = document.getElementById('totalCount');
+            return [total ? total.textContent : '', list ? list.querySelectorAll('.book-item').length : 0,
+                list ? list.querySelectorAll('.watch-btn').length : 0].join('|');
+        });
+        if (signature === previous) return;
+        previous = signature;
+        await page.waitForTimeout(250);
+    }
+};
+
 try {
     // 不能用 networkidle：首屏会自动触发一次 AI 初筛（长请求），页面永远不会"静下来"。
     // 真正的就绪条件是 #bookList 出数据，交给 waitRendered() 判定
@@ -120,6 +139,8 @@ try {
     /* 引擎结论是列表渲染后异步补拉的：切筛选后如果不等它，徽章与「详情入口」会读成空 */
     await page.waitForFunction(() => document.querySelector('.ai-badge') !== null, { timeout: 15000 })
         .catch(() => {});
+    // 四个筛选连续切换过：等最终状态落定，否则会读到某个中间响应（3 行 / total=3）
+    await waitStable();
 
     // 1) 首屏：必须出数据，且不能是「加载失败」空态
     const first = await snapshot();
@@ -129,10 +150,14 @@ try {
     check('首屏计数与行数一致', first.total > 0, first.total);
 
     // 1.5) 关注入口：每行一颗「关注」按钮，筛选栏有「只看关注」（2026-10-23 新增）
-    const watchBtns = await page.locator('#bookList .watch-btn').count();
-    const watchableRows = await page.locator('#bookList .book-item[data-book-id]').count();
+    // 两次 count() 之间列表可能被重绘（实测读到 3 个按钮 / 10 行），必须一次取完
+    const watchInfo = await page.evaluate(() => ({
+        btns: document.querySelectorAll('#bookList .watch-btn').length,
+        rows: document.querySelectorAll('#bookList .book-item[data-book-id]').length
+    }));
     const filterWatchedExists = await page.locator('#filterWatched').count();
-    check('每行都有「关注」按钮', watchBtns > 0 && watchBtns === watchableRows, `${watchBtns}/${watchableRows}`);
+    check('每行都有「关注」按钮', watchInfo.btns > 0 && watchInfo.btns === watchInfo.rows,
+        `${watchInfo.btns}/${watchInfo.rows}`);
     check('筛选栏有「只看关注」', filterWatchedExists === 1, filterWatchedExists);
 
     // 1.6) 键盘：j/k 移动高亮、x 勾选、Enter 开详情（2026-10-23 新增）
@@ -171,6 +196,16 @@ try {
     kb = await kbState();
     check('x 勾选当前行', kb.checked);
     await page.keyboard.press('x');
+    /* Enter 只对「当前行有详情入口」生效：第一行可能是还没判过的书（无徽章即无详情）。
+       先把高亮沿列表移到第一本有结论的书上，否则断言会误判成快捷键失效 */
+    const detailRowIdx = await page.evaluate(() => [...document.querySelectorAll('#bookList .book-item')]
+        .findIndex(row => row.querySelector('[data-action="ai-detail"]')));
+    for (let i = 0; i < 12 && detailRowIdx >= 0; i++) {
+        const current = await kbState();
+        if (current.idx === detailRowIdx) break;
+        await page.keyboard.press('j');
+        await page.waitForTimeout(80);
+    }
     await page.keyboard.press('Enter');
     await page.waitForTimeout(300);
     kb = await kbState();

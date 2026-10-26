@@ -147,7 +147,7 @@ function renderHistory(entries) {
             : [modelLabel(entry.model), entry.promptId ? `提示词 ${entry.promptId}` : '']
                 .filter(Boolean).join(' · ');
         return `
-            <li class="ai-log-row">
+            <li class="ai-log-row${entry.kind === 'failed' ? ' is-failed' : ''}">
                 <span class="ai-log-time">${escapeText(shortTime(entry.checkedTime))}</span>
                 <span class="ai-badge ${flag.cls}">${flag.label}</span>
                 <span class="ai-log-score">${escapeText(formatAiScore(entry.aiScore))}</span>

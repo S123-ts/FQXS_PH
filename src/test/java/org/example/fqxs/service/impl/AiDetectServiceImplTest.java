@@ -18,7 +18,6 @@ import org.example.fqxs.service.AiVerdictWriter;
 import org.example.fqxs.service.AiVerifyService;
 import org.example.fqxs.service.AiDetectStatusService;
 import org.example.fqxs.service.AiFaultGuard;
-import org.example.fqxs.service.AiFaultGuard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,6 +35,8 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -240,6 +241,37 @@ class AiDetectServiceImplTest {
         assertThat(result.aiCount()).isEqualTo(1);
         assertThat(result.remaining()).isEqualTo(5);
         assertThat(result.errors()).hasSize(1);
+    }
+
+    @Test
+    void failedModelAttemptLeavesFailedLogRow() {
+        // 型号池只有一个型号，且它失败：这一轮必须留下 kind=failed 的流水，
+        // 否则时间线上只剩成功的那几次，「这轮试过但没出结论」看不见
+        when(aiDetectClient.detectFree(eq(GLM), eq(TEST_MODEL), any()))
+                .thenThrow(new CrawlException("HTTP 429 额度耗尽", 429, "quota"));
+
+        assertThatThrownBy(() -> aiDetectService.detectFree("b1", GLM, false))
+                .isInstanceOf(CrawlException.class);
+
+        verify(verdictWriter).writeFailed("b1", GLM, TEST_MODEL, "HTTP 429 额度耗尽",
+                "free:mid_recent", "1-2", 0);
+        // 失败不写结论：初筛落库（11 参数重载）一次都不该发生
+        verify(verdictWriter, never()).writeSweep(anyString(), anyString(), anyString(), anyInt(),
+                anyDouble(), any(), any(), any(), any(), anyString(), anyInt());
+    }
+
+    @Test
+    void sampleFailureAlsoLeavesFailedLogRow() {
+        // 取样就失败（第三方通道不可用 / 正文不足）：还没进型号循环，也算一次审核尝试
+        when(sampleCollector.collect(anyString(), any()))
+                .thenThrow(new CrawlException("会员正文通道暂不可用"));
+
+        assertThatThrownBy(() -> aiDetectService.detectFree("b1", GLM, false))
+                .isInstanceOf(CrawlException.class);
+
+        // 取样失败时没有档位与跨度可记，章号也没有单章概念
+        verify(verdictWriter).writeFailed("b1", GLM, TEST_MODEL, "会员正文通道暂不可用", null, null, 0);
+        verifyNoInteractions(aiDetectClient);
     }
 
     @Test

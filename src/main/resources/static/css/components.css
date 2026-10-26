@@ -2003,6 +2003,16 @@ button.ai-badge:disabled {
     .ai-log-tech {
         display: none;
     }
+    /* 失败行的原因是它唯一的信息，不能跟着型号列一起藏掉：
+       让原因换到下一行占满整宽，读者才知道这轮为什么没判成 */
+    .ai-log-row.is-failed .ai-log-tech {
+        display: block;
+        grid-column: 1 / -1;
+        margin-top: 2px;
+        white-space: normal;
+        overflow: visible;
+        color: var(--text-2);
+    }
 }
 
 /* ============================================================

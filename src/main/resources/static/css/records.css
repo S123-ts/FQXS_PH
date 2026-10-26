@@ -329,6 +329,14 @@
     color: var(--text-2);
 }
 
+/* 调用失败：虚线描边与「未命中」的实心灰区分开——
+   失败是「没判成」，未命中是「判了但不是 AI」，两者含义相反 */
+.rec-flag-failed {
+    background: transparent;
+    border: 1px dashed var(--border);
+    color: var(--text-2);
+}
+
 /* 进度条：逐章校验的 k/10 */
 .rec-progress {
     display: inline-block;

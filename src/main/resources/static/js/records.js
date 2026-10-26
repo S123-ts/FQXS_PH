@@ -13,7 +13,8 @@ const KIND_LABEL = /** @type {Record<string, string>} */ ({
     sweep: '整本初筛',
     verify: '逐章校验',
     progress: '推进进度',
-    rerun: '手点重跑'
+    rerun: '手点重跑',
+    failed: '调用失败'
 });
 
 /** aiFlag → 徽章文案与配色类，与主界面 AI 徽章同语义。 */
@@ -239,11 +240,12 @@ function renderResults(results) {
         cell(tr, `${item.engine || '—'} · ${model || '—'}`);
 
         const flag = FLAG[Number(item.aiFlag)];
+        const failed = item.kind === 'failed';
         const flagTd = document.createElement('td');
         const badge = document.createElement('span');
-        badge.className = `rec-flag ${flag ? flag.cls : 'rec-flag-progress'}`;
-        // aiFlag=0 是逐章校验的中间步：这一章没命中，本轮不产生结论
-        badge.textContent = flag ? flag.label : '未命中';
+        badge.className = `rec-flag ${failed ? 'rec-flag-failed' : (flag ? flag.cls : 'rec-flag-progress')}`;
+        // 失败行 aiFlag 也是 0，但它不是「这一章没命中」，是「这轮没判成」：文案必须分开
+        badge.textContent = failed ? '失败' : (flag ? flag.label : '未命中');
         flagTd.appendChild(badge);
         tr.appendChild(flagTd);
 
