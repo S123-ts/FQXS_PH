@@ -165,6 +165,7 @@ class AiVerdictWriterTest {
         // 仓库按「新到旧」返回，尾部 5 条是最老的
         List<Long> newestFirst = new ArrayList<>(ids);
         java.util.Collections.reverse(newestFirst);
+        when(verdictLogRepository.countByBookId(BOOK_ID)).thenReturn((long) ids.size());
         when(verdictLogRepository.findIdsByBookIdNewestFirst(BOOK_ID)).thenReturn(newestFirst);
 
         writer.writeSweep(BOOK_ID, GLM, MODEL, 2, 80.0, "", null, null, null);
@@ -178,11 +179,12 @@ class AiVerdictWriterTest {
 
     @Test
     void keepsAllRowsUnderLimit() {
-        when(verdictLogRepository.findIdsByBookIdNewestFirst(BOOK_ID))
-                .thenReturn(List.of(3L, 2L, 1L));
+        when(verdictLogRepository.countByBookId(BOOK_ID)).thenReturn(3L);
 
         writer.writeSweep(BOOK_ID, GLM, MODEL, 2, 80.0, "", null, null, null);
 
+        // 没超上限：连 id 列表都不该拉回来（逐章校验一轮会写 40 次，省掉这次查询）
+        verify(verdictLogRepository, never()).findIdsByBookIdNewestFirst(any());
         verify(verdictLogRepository, never()).deleteAllByIdInBatch(anyList());
     }
 

@@ -116,7 +116,9 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Object> onOther(Exception e) {
         log.error("未处理异常", e);
-        return body(HttpStatus.INTERNAL_SERVER_ERROR, "服务内部错误: " + e.getClass().getSimpleName());
+        // 不回 e.getClass().getSimpleName()：异常类型名是内部实现细节，
+        // 透给浏览器既无助于排查（日志里有完整栈），也会泄露后端技术栈
+        return body(HttpStatus.INTERNAL_SERVER_ERROR, "服务内部错误，请查看服务端日志");
     }
 
     private ResponseEntity<Object> body(HttpStatus status, String message) {

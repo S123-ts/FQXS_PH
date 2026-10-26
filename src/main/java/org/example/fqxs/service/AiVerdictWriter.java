@@ -263,11 +263,15 @@ public class AiVerdictWriter {
 
     /** 保留最近 {@link NovelAiVerdictLog#KEEP_PER_BOOK} 轮：上限见常量注释，超出按新到旧裁剪。 */
     private void trimLog(String bookId) {
-        List<Long> ids = verdictLogRepository.findIdsByBookIdNewestFirst(bookId);
-        if (ids.size() <= NovelAiVerdictLog.KEEP_PER_BOOK) {
+        /* 先数一下再决定要不要拉 id：逐章校验一轮会写 40 次，每次都把几百个主键捞回来
+           只为判断「有没有超上限」不划算。count 只回一个数字，正常情况到这里就结束 */
+        if (verdictLogRepository.countByBookId(bookId) <= NovelAiVerdictLog.KEEP_PER_BOOK) {
             return;
         }
-        verdictLogRepository.deleteAllByIdInBatch(ids.subList(NovelAiVerdictLog.KEEP_PER_BOOK, ids.size()));
+        List<Long> ids = verdictLogRepository.findIdsByBookIdNewestFirst(bookId);
+        if (ids.size() > NovelAiVerdictLog.KEEP_PER_BOOK) {
+            verdictLogRepository.deleteAllByIdInBatch(ids.subList(NovelAiVerdictLog.KEEP_PER_BOOK, ids.size()));
+        }
     }
 
     private String truncateReason(String reason) {

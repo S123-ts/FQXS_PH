@@ -155,8 +155,10 @@ function renderHistory(entries) {
                 <span class="ai-log-tech" title="${escapeAttr(tech)}">${escapeText(tech)}</span>
             </li>`;
     }).join('');
+    /* 后端一次最多回 200 轮、这里只摊开 100 轮，所以「另有 N 轮」报不准总数——
+       改成指向审查记录页，那边能按时间窗口翻更早的流水 */
     const more = entries.length > shown.length
-        ? `<div class="ai-log-status">仅显示最近 ${shown.length} 轮，另有 ${entries.length - shown.length} 轮更早的记录未列出</div>`
+        ? `<div class="ai-log-status">仅显示最近 ${shown.length} 轮，更早的记录可在「审查记录」页查看</div>`
         : '';
     return `
         <details class="ai-log" open>

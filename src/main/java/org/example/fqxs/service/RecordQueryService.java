@@ -184,7 +184,10 @@ public class RecordQueryService {
 
     /** 窗口内流水按标记计数：页面顶部的 KPI 用它，不受 limit 截断影响。 */
     private Map<String, Long> tally(LocalDateTime from) {
-        String sql = "SELECT ai_flag, COUNT(*) FROM novel_ai_verdict_log WHERE checked_time >= ? GROUP BY ai_flag";
+        /* 失败行（kind=failed）的 ai_flag 也是 0，但它不是「判了但没命中」而是「没判成」。
+           混进 0 档会让页面 KPI 的「未命中」看起来像已经判过，失败率也就无从体现 */
+        String sql = "SELECT ai_flag, COUNT(*) FROM novel_ai_verdict_log "
+                + "WHERE checked_time >= ? AND kind <> 'failed' GROUP BY ai_flag";
         Map<String, Long> tally = new LinkedHashMap<>();
         tally.put("0", 0L);
         tally.put("1", 0L);

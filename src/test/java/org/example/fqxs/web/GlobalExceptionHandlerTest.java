@@ -12,6 +12,7 @@ import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -44,5 +45,22 @@ class GlobalExceptionHandlerTest {
                 new ClientAbortException(new IOException("Connection reset by peer"))));
         assertDoesNotThrow(() -> handler.onClientAbort(
                 new AsyncRequestNotUsableException("ServletOutputStream failed to write")));
+    }
+
+    /**
+     * 兜底分支不能把 Java 类名回给浏览器：异常类型是内部实现细节，
+     * 日志里有完整栈，前端只需要一句能照着做的提示。
+     */
+    @Test
+    void unknownExceptionDoesNotLeakJavaClassName() {
+        ResponseEntity<Object> response = handler.onOther(
+                new IllegalStateException("内部状态错乱: com.example.SecretService"));
+
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        String body = String.valueOf(response.getBody());
+        assertTrue(body.contains("服务内部错误"), body);
+        // 类名、包名、原始异常消息都不该出现在回包里
+        assertFalse(body.contains("IllegalStateException"), body);
+        assertFalse(body.contains("com.example"), body);
     }
 }

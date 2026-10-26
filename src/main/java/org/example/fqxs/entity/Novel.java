@@ -148,8 +148,13 @@ public class Novel {
     @Column(name = "ai_score")
     private Double aiScore;
 
-    /** 产出该结论的引擎标识（glm-4-flash / zhuque-text），排查时能分辨结论来源。 */
-    @Column(name = "ai_engine", length = 30)
+    /**
+     * 产出该结论的引擎标识（glm-4-flash / zhuque-text），排查时能分辨结论来源。
+     *
+     * <p>长度跟着 {@code ai_engine.id} 走（VARCHAR(40)）：V1 里这张表先建成 30，
+     * 同版迁移随后放宽到 40，否则自建引擎的结论写主表会超长。</p>
+     */
+    @Column(name = "ai_engine", length = 40)
     private String aiEngine;
 
     /** 免费引擎最近一次判定时刻；为空即“待初筛”，批量任务按它挑选目标。 */

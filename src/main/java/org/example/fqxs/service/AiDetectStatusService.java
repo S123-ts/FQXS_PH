@@ -8,6 +8,7 @@ import org.example.fqxs.entity.NovelAiVerdictLog;
 import org.example.fqxs.repository.NovelAiVerdictLogRepository;
 import org.example.fqxs.repository.NovelAiVerdictRepository;
 import org.example.fqxs.repository.NovelRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 import java.time.format.DateTimeFormatter;
@@ -27,6 +28,14 @@ public class AiDetectStatusService {
 
     private static final DateTimeFormatter VERDICT_TIME_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /**
+     * 详情面板一次最多回多少轮。
+     *
+     * <p>每本最多留 {@link NovelAiVerdictLog#KEEP_PER_BOOK} 条，但面板只摊开最近 100 轮；
+     * 取 200 留一倍余量，既能把整批 500 条的传输砍掉六成，也够「另有 N 轮」的提示有数可报。</p>
+     */
+    private static final int HISTORY_LIMIT = 200;
 
     private final NovelRepository novelRepository;
     private final NovelAiVerdictRepository verdictRepository;
@@ -108,7 +117,8 @@ public class AiDetectStatusService {
             return List.of();
         }
         List<AiDetectService.VerdictLogEntry> history = new ArrayList<>();
-        for (NovelAiVerdictLog logRow : verdictLogRepository.findByBookIdOrderByCheckedTimeDescIdDesc(bookId)) {
+        for (NovelAiVerdictLog logRow : verdictLogRepository
+                .findByBookIdOrderByCheckedTimeDescIdDesc(bookId, PageRequest.of(0, HISTORY_LIMIT))) {
             history.add(new AiDetectService.VerdictLogEntry(
                     logRow.getBookId(),
                     logRow.getEngine(),
