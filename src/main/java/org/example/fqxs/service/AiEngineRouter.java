@@ -45,6 +45,31 @@ public class AiEngineRouter {
     }
 
     /**
+     * 手点徽章重跑的路由：引擎仅因连续失败被熔断时放行，其余不可用情形照旧报错。
+     *
+     * <p>熔断是引擎级粗粒度：往往只是一个型号连续 429 就把整个引擎摁住，而徽章重跑
+     * 会在勾选的型号池内轮换（见 {@code AiDetectServiceImpl} 的型号避让）。用户主动重试
+     * 是明确意图，不该被「上一个型号刷出来的熔断」挡在门口；真坏了还会再次失败留证续期。</p>
+     *
+     * @param requested 请求引擎；null / 空 / random 表示随机
+     * @return 真实引擎标识
+     * @throws IllegalArgumentException 没有可用引擎，或指定引擎根本没配好（未配 Key/停启用关/不存在）
+     */
+    public String resolveForRerun(String requested) {
+        if (isRandom(requested)) {
+            return resolve(requested);
+        }
+        AiEngine record = engineRegistry.find(requested).orElse(null);
+        if (record != null && record.isSuspended() && record.isEnabled()
+                && record.isOpenAiCompatible() && engineRegistry.hasKey(requested)) {
+            log.info("重跑放行停用中的引擎: {}（停用原因：{}，至 {}），将在型号池内轮换",
+                    requested, record.getDisableReason(), record.getDisableUntil());
+            return requested;
+        }
+        return resolveAvoiding(requested, List.of());
+    }
+
+    /**
      * 解析引擎，随机模式优先避开 excluded 里的引擎。
      *
      * @param requested 请求引擎

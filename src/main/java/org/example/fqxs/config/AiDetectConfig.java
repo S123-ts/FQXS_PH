@@ -95,11 +95,24 @@ public class AiDetectConfig {
      */
     private int bookMetaBackfillPerHour = 60;
 
+    /**
+     * 后台逐章校验开关：应用起来后开一个守护线程，把所有书的前 N 章用每个可用引擎各跑一遍——
+     * 只跑同模型的「家族代表」型号（包装差异只留一个，见 ModelFamily）。
+     * 节拍见 {@link #aiVerifyBackfillPerHour}。
+     */
+    private boolean aiVerifyBackfillEnabled = true;
+
+    /**
+     * 后台逐章校验每个引擎每小时推进几本（默认 6 = 10 分钟一本）。一轮把每个可用引擎各推一本，
+     * 所以三家一轮 3 次模型调用；免费渠道按最慢那条的承受能力算，不按家数放大。
+     */
+    private int aiVerifyBackfillPerHour = 6;
+
     /** 同一引擎连续失败多少次就自动停用（判定成功会清零计数，所以这里数的是"连着"）。 */
     private int faultSuspendThreshold = 3;
 
-    /** 自动停用时长（小时）：免费渠道的限流与故障常常几小时内恢复，两天够避开一波。 */
-    private int faultSuspendHours = 48;
+    /** 自动停用时长（小时）：报错到阈值就歇这么久再试，免费渠道的限流通常一小时内恢复。 */
+    private int faultSuspendHours = 1;
 
     /** 单本取样最多请求的章节数（策略章节 + 回退扫描合计），防止一次判定打太多上游请求。 */
     private int sampleRequestLimit = 12;

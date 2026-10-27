@@ -28,7 +28,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 失败留证与自动停用的契约：证据要进库、连续失败要停用两天、成功要清零、留证本身不能拖垮判定。
+ * 失败留证与自动停用的契约：证据要进库、连续失败要停用一小时、成功要清零、留证本身不能拖垮判定。
  */
 @ExtendWith(MockitoExtension.class)
 class AiFaultGuardTest {
@@ -90,9 +90,10 @@ class AiFaultGuardTest {
         assertThat(saved.getOccurredTime()).isNotNull();
     }
 
-    /** 连续到阈值就停用：默认 3 次、48 小时，且到期时间由库里带着，重启不丢。 */
+    /** 连续到阈值就停用：默认 3 次、1 小时，且到期时间由库里带着，重启不丢。 */
     @Test
-    void thirdConsecutiveFailureSuspendsEngineForTwoDays() {
+    void thirdConsecutiveFailureSuspendsEngineForAnHour() {
+        config.setFaultSuspendHours(1);
         AiEngine nearlyDead = engine(2);
         when(engineRepository.findById("glm-4-flash")).thenReturn(Optional.of(nearlyDead));
 
@@ -100,7 +101,7 @@ class AiFaultGuardTest {
 
         LocalDateTime until = nearlyDead.getDisableUntil();
         assertThat(until).isNotNull();
-        assertThat(until).isBetween(DateUtil.now().plusHours(47), DateUtil.now().plusHours(49));
+        assertThat(until).isBetween(DateUtil.now().plusMinutes(55), DateUtil.now().plusMinutes(65));
         assertThat(nearlyDead.getConsecutiveFailures()).isEqualTo(3);
         assertThat(nearlyDead.getDisableReason()).contains("连续 3 次失败").contains("503");
         assertThat(nearlyDead.isSuspended()).isTrue();

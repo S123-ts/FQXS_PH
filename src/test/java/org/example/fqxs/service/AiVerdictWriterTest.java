@@ -10,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
@@ -229,11 +230,50 @@ class AiVerdictWriterTest {
         assertThat(row.getKind()).isEqualTo(NovelAiVerdictLog.KIND_PROGRESS);
         // 流水不能沿用明细的 2：前端按 aiFlag=2 + #verify 认「命中证据」，会把跳过行当结论
         assertThat(row.getAiFlag()).isZero();
+        // 也不能带上一轮分数：这一章没有证据，显示「未完成 88%」会被读成判过了
+        assertThat(row.getAiScore()).isNull();
 
         ArgumentCaptor<NovelAiVerdict> detail = ArgumentCaptor.forClass(NovelAiVerdict.class);
         verify(verdictRepository).save(detail.capture());
         assertThat(detail.getValue().getAiFlag()).isEqualTo(2);
         assertThat(detail.getValue().getAiScore()).isEqualTo(88.0);
+    }
+
+    @Test
+    void progressDoesNotRefreshDetailVerdictTime() {
+        NovelAiVerdict existing = new NovelAiVerdict();
+        existing.setId(7L);
+        existing.setBookId(BOOK_ID);
+        existing.setEngine(GLM);
+        existing.setModel(MODEL);
+        existing.setAiFlag(1);
+        existing.setAiScore(18.0);
+        java.time.LocalDateTime judgedAt = java.time.LocalDateTime.of(2026, 10, 20, 9, 0);
+        existing.setCheckedTime(judgedAt);
+        when(verdictRepository.findByBookIdAndEngineAndModel(BOOK_ID, GLM, MODEL))
+                .thenReturn(Optional.of(existing));
+
+        writer.writeProgress(BOOK_ID, GLM, MODEL, 1, 18.0, "", 3, 3, "p1-total", "official:head");
+
+        ArgumentCaptor<NovelAiVerdict> saved = ArgumentCaptor.forClass(NovelAiVerdict.class);
+        verify(verdictRepository).save(saved.capture());
+        // 纯进度写入不是一次判定：详情卡头的「最近判定时间」不能跳到现在
+        assertThat(saved.getValue().getCheckedTime()).isEqualTo(judgedAt);
+    }
+
+    @Test
+    void verifyRetriesOnceWhenConcurrentInsertConflicts() {
+        // 两个标签页同时对同一型号逐章校验：后插的撞唯一键。
+        // 第一次 save 抛冲突、重跑时命中已存在的行，前端不该看到 503「库文件被占用」
+        when(verdictRepository.save(any(NovelAiVerdict.class)))
+                .thenThrow(new DataIntegrityViolationException("(book_id, engine, model) 已存在"))
+                .thenReturn(null);
+
+        writer.writeVerify(BOOK_ID, GLM, MODEL, 1, 20.0, "第 1 章正常", 1, 1, "p1-total", false, "official:head");
+
+        // 明细写两次（一次冲突、一次成功），流水只留一条
+        verify(verdictRepository, org.mockito.Mockito.times(2)).save(any(NovelAiVerdict.class));
+        assertThat(captureLog().getKind()).isEqualTo(NovelAiVerdictLog.KIND_VERIFY);
     }
 
     @Test

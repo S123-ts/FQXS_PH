@@ -164,7 +164,14 @@ ai:
     book-meta-backfill-per-hour: ${BOOK_META_BACKFILL_PER_HOUR:60}
     # 失败留证与自动停用：同一引擎连续 N 次判定失败就停用 M 小时（到期自动恢复，重启不丢）
     fault-suspend-threshold: 3
-    fault-suspend-hours: 48
+    fault-suspend-hours: ${FAULT_SUSPEND_HOURS:1}
+    # 后台 AI 逐章校验：把所有书的前 N 章（verify-max-chapters）用每个可用引擎各跑一遍。
+    # 只跑同模型的「家族代表」型号（ernie-4.5-turbo-32k 与 -128k 这类包装差异只留一个，省额度换产量）。
+    # 节拍按引擎算：ai-verify-backfill-per-hour=6 即每个引擎 10 分钟推进一本，
+    # 一轮把三家各推一本 = 10 分钟 3 次调用；免费渠道按最慢那条算，不按家数放大。
+    # 模型调用连续失败到 fault-suspend-threshold 次由熔断自动停用（时长见上），本线程不另计失败。
+    ai-verify-backfill-enabled: ${AI_VERIFY_BACKFILL_ENABLED:true}
+    ai-verify-backfill-per-hour: ${AI_VERIFY_BACKFILL_PER_HOUR:6}
     # 单本取样最多请求的章节数（策略章节 + 回退扫描合计）：
     # 防止一次判定把上游/书源 API 打太多次
     sample-request-limit: 12

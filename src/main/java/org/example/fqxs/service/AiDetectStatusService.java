@@ -50,22 +50,28 @@ public class AiDetectStatusService {
      */
     public AiDetectService.StatusView status() {
         Map<String, Long> pendingByEngine = new LinkedHashMap<>();
-        // 只统计已配置的引擎：没 Key 的引擎在页面上是禁用态，它的待判数没有意义
-        for (String engine : engineRegistry.availableFreeEngines()) {
-            pendingByEngine.put(engine,
-                    novelRepository.countBookIdsMissingEngineVerdict(engine, engineRegistry.modelsOf(engine)));
-        }
         Map<String, List<String>> modelPools = new LinkedHashMap<>();
-        for (String engine : engineRegistry.availableFreeEngines()) {
-            modelPools.put(engine, engineRegistry.modelsOf(engine));
+        List<String> availableEngines = new ArrayList<>();
+        List<String> bannableEngines = new ArrayList<>();
+        /* 一次回库拿全部引擎：原先 availableFreeEngines() 调三次、modelsOf() 每个引擎再 findById，
+           3 个引擎约 9 次查询。可用性判定复用注册表，不在本类重写（同一约束两处实现必漂移） */
+        for (AiEngine engine : engineRegistry.all()) {
+            if (!engineRegistry.isAvailableForFree(engine)) {
+                continue;
+            }
+            String id = engine.getId();
+            List<String> models = AiEngineRegistry.modelsOf(engine);
+            availableEngines.add(id);
+            modelPools.put(id, models);
+            pendingByEngine.put(id, novelRepository.countBookIdsMissingEngineVerdict(id, models));
+            // 熔断候选：只有 autoBan=true 的引擎允许被自动切换
+            if (engine.isAutoBan()) {
+                bannableEngines.add(id);
+            }
         }
-        // 熔断候选：只有 autoBan=true 的引擎允许被自动切换
-        List<String> bannableEngines = engineRegistry.availableFreeEngines().stream()
-                .filter(id -> engineRegistry.find(id).map(AiEngine::isAutoBan).orElse(false))
-                .toList();
         return new AiDetectService.StatusView(
                 aiDetectConfig.isEnabled(),
-                engineRegistry.availableFreeEngines(),
+                availableEngines,
                 pendingByEngine,
                 novelRepository.countDistinctBooksByAiFlag(2),
                 novelRepository.countDistinctBooksByAiFlag(3),

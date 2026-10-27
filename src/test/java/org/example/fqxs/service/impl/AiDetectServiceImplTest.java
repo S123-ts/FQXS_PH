@@ -103,8 +103,8 @@ class AiDetectServiceImplTest {
         lenient().when(engineRegistry.require(anyString())).thenAnswer(inv -> engine(inv.getArgument(0)));
         lenient().when(engineRegistry.hasKey(anyString())).thenReturn(true);
         lenient().when(engineRegistry.modelsOf(anyString())).thenReturn(List.of(TEST_MODEL));
-        lenient().when(engineRegistry.pickModel(anyString())).thenReturn(TEST_MODEL);
         lenient().when(engineRouter.resolveAvoiding(anyString(), anyList())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(engineRouter.resolveForRerun(anyString())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(sampleCollector.collect(anyString(), any())).thenReturn(
                 new AiSampleCollector.CollectedSample("正文正文", "free:mid_recent", "1-2", 2));
     }
@@ -208,6 +208,44 @@ class AiDetectServiceImplTest {
         assertThat(result.cached()).isFalse();
         assertThat(result.aiFlag()).isEqualTo(2);
         verify(aiDetectClient).detectFree(eq(GLM), eq(TEST_MODEL), any());
+    }
+
+    /** 手点重跑在型号池内摊开：已判过的型号跳过，落在还没判过的那个上。 */
+    @Test
+    void rerunSkipsAlreadyJudgedModels() {
+        when(engineRegistry.modelsOf(GLM)).thenReturn(List.of("model-a", "model-b"));
+        NovelAiVerdict judged = verdictRow("b1", GLM, 1, 40.0, "旧型号",
+                LocalDateTime.of(2026, 10, 20, 10, 0, 0));
+        judged.setModel("model-a");
+        when(verdictRepository.findByBookIdAndEngineAndModelIn("b1", GLM, List.of("model-a", "model-b")))
+                .thenReturn(List.of(judged));
+        when(aiDetectClient.detectFree(eq(GLM), eq("model-b"), any())).thenReturn(new AiVerdict(75, GLM, ""));
+
+        AiDetectService.FreeDetectResult result = aiDetectService.detectFree("b1", GLM, true, null, true);
+
+        assertThat(result.cached()).isFalse();
+        verify(aiDetectClient).detectFree(eq(GLM), eq("model-b"), any());
+        verify(aiDetectClient, never()).detectFree(eq(GLM), eq("model-a"), any());
+        verify(verdictWriter).writeSweep("b1", GLM, "model-b", 2, 75.0, "", null,
+                "free:mid_recent", "1-2", "rerun", 2);
+    }
+
+    /** 全判过也不能把重跑判死：退回全池随机，仍然出一次真实调用。 */
+    @Test
+    void rerunWithAllModelsJudgedStillPicksFromPool() {
+        when(engineRegistry.modelsOf(GLM)).thenReturn(List.of("model-a", "model-b"));
+        NovelAiVerdict a = verdictRow("b1", GLM, 1, 40.0, "甲", null);
+        a.setModel("model-a");
+        NovelAiVerdict b = verdictRow("b1", GLM, 2, 88.0, "乙", null);
+        b.setModel("model-b");
+        when(verdictRepository.findByBookIdAndEngineAndModelIn("b1", GLM, List.of("model-a", "model-b")))
+                .thenReturn(List.of(a, b));
+        when(aiDetectClient.detectFree(eq(GLM), anyString(), any())).thenReturn(new AiVerdict(75, GLM, ""));
+
+        AiDetectService.FreeDetectResult result = aiDetectService.detectFree("b1", GLM, true, null, true);
+
+        assertThat(result.cached()).isFalse();
+        verify(aiDetectClient, times(1)).detectFree(eq(GLM), anyString(), any());
     }
 
     @Test

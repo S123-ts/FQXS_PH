@@ -176,6 +176,32 @@ public interface NovelRepository extends JpaRepository<Novel, Long> {
                                                  @Param("models") Collection<String> models,
                                                  Pageable pageable);
 
+    /**
+     * 后台逐章校验候选：指定引擎还没「查满 N 章」的书，按热度从高到低取。
+     *
+     * <p>判据用明细行的 {@code chapters_checked}——逐章校验的游标就存在那里，没有明细行的书
+     * 自然算 0 章、排在最前。同一本书跨多个分类各有一行，必须 GROUP BY 去重，否则一轮里
+     * 同一本会被推进多次。</p>
+     *
+     * <p>「查完」是<b>按型号</b>算的：逐章校验一次只推进一个型号的一章，本次范围内的每个型号都要
+     * 各自查满 {@code chapters} 章。所以排除条件是「该引擎下这本书在 {@code rowModels} 里的行数已经
+     * 凑满 {@code modelCount} 且每行都查满」——只看某一行达标就把书踢出队列，其余型号永远轮不到。</p>
+     *
+     * <p>只数 {@code rowModels}（带 {@code #verify} 后缀的行标识）是有意的：后台按<b>家族代表</b>推进，
+     * 池里被去重掉的型号（如 {@code ernie-4.5-turbo-128k}）可能留有手动校验的旧行，
+     * 把它们算进来会让这本书被误判成「已查完」。</p>
+     */
+    @Query("SELECT n.bookId FROM Novel n WHERE n.isBlocked = false AND n.bookId IS NOT NULL "
+            + "AND n.bookId NOT IN (SELECT v.bookId FROM NovelAiVerdict v "
+            + "WHERE v.engine = :engine AND v.model IN :rowModels "
+            + "GROUP BY v.bookId HAVING COUNT(v) >= :modelCount AND MIN(v.chaptersChecked) >= :chapters) "
+            + "GROUP BY n.bookId ORDER BY MAX(n.readCountRaw) DESC")
+    List<String> findBookIdsNeedingVerify(@Param("engine") String engine,
+                                         @Param("rowModels") Collection<String> rowModels,
+                                         @Param("modelCount") int modelCount,
+                                         @Param("chapters") int chapters,
+                                         Pageable pageable);
+
     /** 指定引擎与型号池尚未判定的书籍数（按书去重），批量初筛据此计算随机页。 */
     @Query("SELECT COUNT(DISTINCT n.bookId) FROM Novel n WHERE n.isBlocked = false "
             + "AND n.bookId NOT IN (SELECT v.bookId FROM NovelAiVerdict v "

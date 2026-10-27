@@ -61,6 +61,33 @@ class AiEngineRouterTest {
                 .hasMessageContaining("失败日志");
     }
 
+    /** 手点重跑：只被熔断摁住的引擎要放行——型号池内会轮换，不该被单一型号刷出来的熔断挡在门口。 */
+    @Test
+    void rerunPassesSuspendedEngineThroughWhenOtherwiseConfigured() {
+        when(registry.find("qwen2.5-7b")).thenReturn(java.util.Optional.of(
+                org.example.fqxs.entity.AiEngine.builder()
+                        .id("qwen2.5-7b").name("Qwen").baseUrl("https://x/chat/completions")
+                        .model("Qwen/Qwen2.5-7B-Instruct").protocol("openai_chat")
+                        .enabled(true).autoBan(true).priority(20)
+                        .disableUntil(java.time.LocalDateTime.now().plusHours(40))
+                        .disableReason("连续 3 次失败：上游返回 429")
+                        .build()));
+        when(registry.hasKey("qwen2.5-7b")).thenReturn(true);
+
+        assertThat(router.resolveForRerun("qwen2.5-7b")).isEqualTo("qwen2.5-7b");
+    }
+
+    /** 重跑放行只针对已存在的引擎：引擎不存在的照旧拒绝，不静默换引擎。 */
+    @Test
+    void rerunStillRejectsUnknownEngine() {
+        when(registry.availableFreeEngines()).thenReturn(List.of("glm-4-flash"));
+        when(registry.find("qwen2.5-7b")).thenReturn(java.util.Optional.empty());
+
+        assertThatThrownBy(() -> router.resolveForRerun("qwen2.5-7b"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不可用");
+    }
+
     @Test
     void randomAvoidsEnginesThatAlreadyJudgedTheBook() {
         when(registry.availableFreeEngines()).thenReturn(List.of("glm-4-flash", "qwen2.5-7b"));

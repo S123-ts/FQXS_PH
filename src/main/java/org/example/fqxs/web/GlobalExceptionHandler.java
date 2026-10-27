@@ -3,8 +3,10 @@ package org.example.fqxs.web;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.ClientAbortException;
 import org.example.fqxs.exception.CrawlException;
+import org.example.fqxs.exception.OperationConflictException;
 import org.example.fqxs.exception.QuotaExceededException;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.TransactionException;
@@ -42,6 +44,24 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Object> onDb(RuntimeException e) {
         log.warn("数据库操作失败: {}", e.getMessage());
         return body(HttpStatus.SERVICE_UNAVAILABLE, "数据库不可用，请确认 data/ 下的库文件没被其他进程占用");
+    }
+
+    /**
+     * 唯一键冲突是并发写入，不是库挂了：两个标签页同时判同一本书同一型号时，
+     * 后插入的那份会撞 (book_id, engine, model)。归到 503「库文件被占用」
+     * 会把排查方向带偏，409 才是「稍后重试」的意思。
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<Object> onDataConflict(DataIntegrityViolationException e) {
+        log.warn("并发写入冲突: {}", e.getMessage());
+        return body(HttpStatus.CONFLICT, "同一本书同一型号正在被另一处写入，请稍后重试");
+    }
+
+    /** 逐章校验已在另一处推进：不是服务器故障，409 让前端原样提示即可。 */
+    @ExceptionHandler(OperationConflictException.class)
+    public ResponseEntity<Object> onOperationConflict(OperationConflictException e) {
+        log.warn("操作冲突: {}", e.getMessage());
+        return body(HttpStatus.CONFLICT, e.getMessage());
     }
 
     /** 参数不合法只回参数名，Spring 的原始消息里带 Java 类型名，不该透出给浏览器。 */

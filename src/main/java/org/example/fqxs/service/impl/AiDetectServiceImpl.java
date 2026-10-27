@@ -91,17 +91,22 @@ public class AiDetectServiceImpl implements AiDetectService {
                                                 SampleSpec sample, boolean rerun) {
         ensureEnabled();
         // engine 为空或 random 时随机挑一个可用引擎，并避开这本书已判过的引擎。
-        // 可用性判定（启用/未暂停/兼容/有 Key）只由 router 负责，这里不再重复校验
-        String actualEngine = engineRouter.resolveAvoiding(engine, judgedEngines(bookId));
+        // 可用性判定（启用/未暂停/兼容/有 Key）只由 router 负责，这里不再重复校验；
+        // 手点重跑走 rerun 专用路由：熔断只是引擎级粗粒度，型号池内还有活型号就不该被挡
+        String actualEngine = rerun
+                ? engineRouter.resolveForRerun(engine)
+                : engineRouter.resolveAvoiding(engine, judgedEngines(bookId));
         List<String> models = engineRegistry.modelsOf(actualEngine);
-        // 每次判定在勾选的型号池里随机取一个：多模型分摊额度与限流
-        String pickedModel = engineRegistry.pickModel(actualEngine);
+        // 该书在此引擎下的已有明细行：型号避让与幂等守卫共用一次查询
+        List<NovelAiVerdict> existingRows = verdictRepository
+                .findByBookIdAndEngineAndModelIn(bookId, actualEngine, models);
+        // 优先在没判过的型号里随机，全判过再全池随机：多型号分摊额度，重跑不总撞同一个
+        String pickedModel = pickFreshModel(models, existingRows);
 
         // 0. 幂等守卫：该引擎的任一勾选型号已有初筛结论就复用（同一本书不重复消耗额度）；
         //    切型号池后新池里的型号都没有结论，会真正重判。
         if (!force) {
-            NovelAiVerdict existing = verdictRepository
-                    .findByBookIdAndEngineAndModelIn(bookId, actualEngine, models).stream()
+            NovelAiVerdict existing = existingRows.stream()
                     .filter(this::isInitialSweepVerdict)
                     // 多型号都判过时取最新一条：仓储没有排序，不能把 findFirst 的偶然顺序当结论
                     .max(Comparator.comparing(NovelAiVerdict::getCheckedTime,
@@ -169,6 +174,21 @@ public class AiDetectServiceImpl implements AiDetectService {
                 sampleResult.mode(), rerun ? "手点重跑" : "初筛",
                 usedModel.equals(pickedModel) ? "否" : "是(原 " + pickedModel + ")");
         return new FreeDetectResult(bookId, verdict.engine(), aiFlag, roundedScore, verdict.reason(), false);
+    }
+
+    /**
+     * 型号挑选：优先从这本书还没判过的型号里随机，全部判过再退回全池随机。
+     *
+     * <p>失败只写流水不动明细（见 {@code AiVerdictWriter#writeFailed}），所以「判过」
+     * 以明细表为准——429 失败的型号下次仍可能被选中重试，与熔断的证据链互不干扰。</p>
+     */
+    private static String pickFreshModel(List<String> models, List<NovelAiVerdict> existingRows) {
+        Set<String> judged = existingRows.stream()
+                .map(NovelAiVerdict::getModel)
+                .collect(java.util.stream.Collectors.toSet());
+        List<String> fresh = models.stream().filter(model -> !judged.contains(model)).toList();
+        List<String> pool = fresh.isEmpty() ? models : fresh;
+        return pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
     }
 
     /**

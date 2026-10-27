@@ -1,6 +1,7 @@
 package org.example.fqxs.service;
 
 import org.example.fqxs.config.AiDetectConfig;
+import org.example.fqxs.entity.AiEngine;
 import org.example.fqxs.entity.NovelAiVerdictLog;
 import org.example.fqxs.repository.NovelAiVerdictLogRepository;
 import org.example.fqxs.repository.NovelAiVerdictRepository;
@@ -18,6 +19,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -83,6 +85,33 @@ class AiDetectStatusServiceTest {
     void blankBookIdShortCircuits() {
         assertThat(service.verdictHistory("  ")).isEmpty();
         assertThat(service.verdictHistory(null)).isEmpty();
+    }
+
+    /**
+     * 状态快照一次回库：原先 availableFreeEngines() 调三次、modelsOf() 每个引擎再 findById，
+     * 3 个引擎约 9 次查询。可用性判定仍归注册表，本类不重写条件。
+     */
+    @Test
+    void statusReadsEngineTableOnce() {
+        AiEngine glm = AiEngine.builder()
+                .id("glm-4-flash").name("智谱 GLM").model("glm-4-flash")
+                .protocol("openai_chat").enabled(true).autoBan(true).build();
+        when(engineRegistry.all()).thenReturn(List.of(glm));
+        when(engineRegistry.isAvailableForFree(glm)).thenReturn(true);
+        when(engineRegistry.availableVerifyEngines()).thenReturn(List.of());
+        when(novelRepository.countBookIdsMissingEngineVerdict(eq("glm-4-flash"), anyList())).thenReturn(3L);
+        when(novelRepository.countDistinctBooksByAiFlag(2)).thenReturn(1L);
+        when(novelRepository.countDistinctBooksByAiFlag(3)).thenReturn(2L);
+
+        AiDetectService.StatusView view = service.status();
+
+        assertThat(view.availableEngines()).containsExactly("glm-4-flash");
+        assertThat(view.pendingByEngine()).containsEntry("glm-4-flash", 3L);
+        assertThat(view.modelPools()).containsEntry("glm-4-flash", List.of("glm-4-flash"));
+        assertThat(view.bannableEngines()).containsExactly("glm-4-flash");
+        verify(engineRegistry, org.mockito.Mockito.times(1)).all();
+        verify(engineRegistry, org.mockito.Mockito.never()).find(any());
+        verify(engineRegistry, org.mockito.Mockito.never()).availableFreeEngines();
     }
 
     private static NovelAiVerdictLog failedRow() {

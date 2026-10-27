@@ -7,8 +7,10 @@ import org.example.fqxs.entity.AiEngine;
 import org.example.fqxs.entity.Novel;
 import org.example.fqxs.entity.NovelAiVerdict;
 import org.example.fqxs.exception.CrawlException;
+import org.example.fqxs.exception.OperationConflictException;
 import org.example.fqxs.model.AiVerdict;
 import org.example.fqxs.model.ChapterSample;
+import org.example.fqxs.model.SampleSpec;
 import org.example.fqxs.repository.NovelAiVerdictRepository;
 import org.example.fqxs.repository.NovelRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +25,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -230,7 +233,7 @@ class AiVerifyServiceTest {
         // 前端靠这个标志停掉整批循环，不能只判 finished（单型号查完也会是 true）
         assertThat(result.allDone()).isTrue();
         assertThat(result.aiHit()).isFalse();
-        assertThat(result.message()).contains("都已校验完");
+        assertThat(result.message()).contains("都已查完");
         // 没有更多章节可查：不该再抓正文、也不该再写任何结论
         verifyNoInteractions(chapterContentService);
         verifyNoInteractions(aiDetectClient);
@@ -271,6 +274,68 @@ class AiVerifyServiceTest {
         // 跳过判定，但进度要推进，否则同一章会被反复请求
         verify(verdictWriter).writeProgress("b1", ENGINE, VERIFY_A, 0, 0.0, "", 1, 1, null, "official:head");
         verifyNoInteractions(aiDetectClient);
+    }
+
+    @Test
+    void fetchFailureLeavesFailedLogWithoutAdvancingCursor() {
+        when(verdictRepository.findByBookIdAndEngineAndModel("b1", ENGINE, VERIFY_A))
+                .thenReturn(Optional.empty());
+        when(chapterContentService.getOrFetch(eq("b1"), eq("c1"), eq(0), any()))
+                .thenThrow(new CrawlException("上游 HTTP 500", 500, "boom"));
+
+        assertThatThrownBy(() -> service.stepVerify("b1", ENGINE, null))
+                .isInstanceOf(CrawlException.class);
+
+        // 取文失败要留证，但不能当「试读跳过」推进游标：这批章还能重新点一次
+        verify(verdictWriter).writeFailed("b1", ENGINE, VERIFY_A, "上游 HTTP 500", "official:head", null, 1);
+        verify(verdictWriter, never()).writeProgress(any(), any(), any(), anyInt(), anyDouble(), any(), anyInt(),
+                anyInt(), any(), any());
+        verify(verdictWriter, never()).writeVerify(any(), any(), any(), any(AiVerdictWriter.RoundVerdict.class),
+                any(), anyInt(), anyInt(), any(), any(Boolean.class), any());
+        verifyNoInteractions(aiDetectClient);
+        // 取文失败是线路问题，不是引擎故障：不能累计熔断把引擎停掉
+        verifyNoInteractions(faultGuard);
+    }
+
+    @Test
+    void thirdPartyFetchFailureAlsoLeavesFailedLog() {
+        when(sampleCollector.plan(eq("b1"), any()))
+                .thenReturn(new AiSampleCollector.ChapterPlan(ITEM_IDS, INDICES, 10, 300, true));
+        when(verdictRepository.findByBookIdAndEngineAndModel("b1", ENGINE, VERIFY_A))
+                .thenReturn(Optional.empty());
+        when(thirdPartyChapterClient.fetchChapter("c1"))
+                .thenThrow(new CrawlException("第三方 502", 502, "bad gateway"));
+
+        assertThatThrownBy(() -> service.stepVerify("b1", ENGINE, SampleSpec.of(SampleSpec.RECENT, 0)))
+                .isInstanceOf(CrawlException.class);
+
+        // 第三方共享线路最容易抖：必须是 failed + 游标不动，而不是「试读跳过」
+        verify(verdictWriter).writeFailed("b1", ENGINE, VERIFY_A, "第三方 502", "third:recent", null, 1);
+        verify(verdictWriter, never()).writeProgress(any(), any(), any(), anyInt(), anyDouble(), any(), anyInt(),
+                anyInt(), any(), any());
+        verifyNoInteractions(aiDetectClient);
+        verifyNoInteractions(faultGuard);
+    }
+
+    @Test
+    void rejectsConcurrentVerifyForSameBookAndEngine() {
+        when(verdictRepository.findByBookIdAndEngineAndModel("b1", ENGINE, VERIFY_A))
+                .thenReturn(Optional.empty());
+        // 判到一半时另一个标签页又点了一次：应被占位挡下，而不是再判同一章
+        java.util.concurrent.atomic.AtomicBoolean reentered = new java.util.concurrent.atomic.AtomicBoolean();
+        when(aiDetectClient.detectFree(eq(ENGINE), eq(MODEL_A), anyString())).thenAnswer(inv -> {
+            if (reentered.compareAndSet(false, true)) {
+                assertThatThrownBy(() -> service.stepVerify("b1", ENGINE, null))
+                        .isInstanceOf(OperationConflictException.class)
+                        .hasMessageContaining("正在另一处逐章校验");
+            }
+            return new AiVerdict(12, ENGINE, "不像 AI", null);
+        });
+
+        service.stepVerify("b1", ENGINE, null);
+        // 上一次结束后占位释放，可以正常继续（异常路径也不会把键永久占住）
+        AiDetectService.VerifyStepResult again = service.stepVerify("b1", ENGINE, null);
+        assertThat(again.chapterIndex()).isEqualTo(1);
     }
 
     @Test

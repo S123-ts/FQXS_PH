@@ -8,6 +8,7 @@ import org.example.fqxs.config.AiDetectConfig;
 import org.example.fqxs.entity.Novel;
 import org.example.fqxs.entity.NovelAiVerdict;
 import org.example.fqxs.exception.CrawlException;
+import org.example.fqxs.exception.OperationConflictException;
 import org.example.fqxs.model.AiVerdict;
 import org.example.fqxs.model.ChapterSample;
 import org.example.fqxs.model.SampleSpec;
@@ -18,6 +19,8 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -46,6 +49,15 @@ public class AiVerifyService {
     /** 逐章校验的型号后缀：让进度/结论与整本初筛分开存行。 */
     public static final String VERIFY_MODEL_SUFFIX = "#verify";
 
+    /**
+     * 正在逐章校验的「书 + 引擎」。
+     *
+     * <p>游标读与写之间隔着一次 30–60 秒的模型调用，两个标签页同时点会判同一章、
+     * 白耗一次额度（写库不冲突，因为都写同一个 nextChecked）。前端去重键只在
+     * 本标签页内有效，这里按进程内占位把重复那份挡在入口。</p>
+     */
+    private final Set<String> inFlightVerifies = ConcurrentHashMap.newKeySet();
+
     private final AiDetectClient aiDetectClient;
     private final ThirdPartyChapterClient thirdPartyChapterClient;
     private final ChapterContentService chapterContentService;
@@ -59,7 +71,7 @@ public class AiVerifyService {
     private final AiFaultGuard faultGuard;
 
     /**
-     * 逐章校验推进一步。
+     * 逐章校验推进一步（全型号池）。
      *
      * @param bookId 书籍 ID
      * @param engine 已配置 Key 的引擎标识
@@ -67,6 +79,19 @@ public class AiVerifyService {
      * @return 本次校验的章节、结论与是否完成
      */
     public AiDetectService.VerifyStepResult stepVerify(String bookId, String engine, SampleSpec sample) {
+        return stepVerify(bookId, engine, sample, null);
+    }
+
+    /**
+     * 逐章校验推进一步，可限定型号范围。
+     *
+     * @param allowedModels 只在池内这些型号上推进；null 或空表示全池（页面手动校验的行为）。
+     *                      后台逐章校验传<b>家族代表型号</b>（{@link AiEngineRegistry#distinctModelsOf}），
+     *                      否则同一模型的上下文变体会把免费额度各烧一遍
+     * @return 本次校验的章节、结论与是否完成
+     */
+    public AiDetectService.VerifyStepResult stepVerify(String bookId, String engine, SampleSpec sample,
+                                                       List<String> allowedModels) {
         ensureEnabled();
         if (bookId == null || bookId.isBlank()) {
             throw new IllegalArgumentException("bookId 不能为空");
@@ -74,6 +99,19 @@ public class AiVerifyService {
         if (AiEngineRouter.isRandom(engine)) {
             throw new IllegalArgumentException("逐章校验需要指定具体引擎，不能使用 random");
         }
+        String flightKey = bookId + "|" + engine;
+        if (!inFlightVerifies.add(flightKey)) {
+            throw new OperationConflictException("这本书的这个引擎正在另一处逐章校验，等它结束再点");
+        }
+        try {
+            return doStepVerify(bookId, engine, sample, allowedModels);
+        } finally {
+            inFlightVerifies.remove(flightKey);
+        }
+    }
+
+    private AiDetectService.VerifyStepResult doStepVerify(String bookId, String engine, SampleSpec sample,
+                                                          List<String> allowedModels) {
         // 可用性判定统一走 router：启用 + 未暂停 + OpenAI 兼容 + 已配 Key。
         // 原先这里手写了一遍（且漏了兼容检查），非兼容引擎要等远程调用前才被拒
         String actualEngine = engineRouter.resolveAvoiding(engine, List.of());
@@ -94,7 +132,10 @@ public class AiVerifyService {
         // 与初筛的 sample_mode 同格式（数据源前缀:档位），历史行有值即可直接比对
         String sampleKey = (effective.usesThirdParty() ? "third:" : "official:") + effective.modeName();
 
-        List<String> models = new ArrayList<>(engineRegistry.modelsOf(actualEngine));
+        // 调用方限定了型号范围（后台按家族代表推进）就只在子集里挑，否则用全池
+        List<String> models = new ArrayList<>(allowedModels == null || allowedModels.isEmpty()
+                ? engineRegistry.modelsOf(actualEngine)
+                : allowedModels);
         // 型号随机：每次点击随机起点，让额度摊到池内各型号，而不是永远只用第一个
         Collections.shuffle(models, ThreadLocalRandom.current());
         for (String model : models) {
@@ -115,7 +156,7 @@ public class AiVerifyService {
                 bookId, actualEngine, models.size(), total);
         return new AiDetectService.VerifyStepResult(bookId, actualEngine, "", 0, total, total,
                 "", 0, false, true, true, false,
-                "该引擎的型号池（" + models.size() + " 个模型）都已校验完这 " + total + " 章，不再重复消耗额度");
+                "本次校验的 " + models.size() + " 个型号都已查完这 " + total + " 章，不再重复消耗额度");
     }
 
     /**
@@ -142,11 +183,20 @@ public class AiVerifyService {
         double previousScore = existing == null || existing.getAiScore() == null ? 0 : existing.getAiScore();
         String previousReason = existing == null || existing.getReason() == null ? "" : existing.getReason();
 
-        ChapterSample chapter = fetchChapter(bookId, plan.itemIds().get(idx), idx, thirdParty);
+        ChapterSample chapter;
+        try {
+            chapter = fetchChapter(bookId, plan.itemIds().get(idx), idx, thirdParty);
+        } catch (CrawlException failure) {
+            /* 取文失败与「试读章」必须分开：前者是线路抖动，这一章没有任何证据，
+               游标一旦前进就再也查不回来（stepVerify 会认为这批已查完）。
+               只留失败流水、不动游标，下次点击仍从这一章重试。 */
+            verdictWriter.writeFailed(bookId, engine, rowModel, failure.getMessage(), sampleKey, null, chapterNo);
+            throw failure;
+        }
         String text = chapter.text() == null ? "" : chapter.text();
 
-        // 试读/VIP 章节拿不到完整正文，判定没有意义：推进进度并留一条流水，
-        // 否则同一章会被反复请求、永远停在原地
+        // 真实试读/VIP 章节：抓到了正文但太短，判定没有意义。推进进度并留一条流水，
+        // 否则同一章会被反复请求、永远停在原地（取文失败已在上面单独拦下，不进这里）
         if (text.length() < aiDetectConfig.getMinChapterChars()) {
             int flag = keptHit ? 2 : (finished ? 1 : 0);
             verdictWriter.writeProgress(bookId, engine, rowModel, flag, previousScore, previousReason,
@@ -207,7 +257,8 @@ public class AiVerifyService {
      * 抓一章正文：官方档走 {@link ChapterContentService}（库优先，前 10 章判第二次就不再打上游），
      * 第三方档直接走会员通道。
      *
-     * <p>第三方章取文失败按"跳过"处理（空正文），不把整本判定打断——共享线路随时会断。</p>
+     * <p>取文失败原样抛出，由 {@link #verifyOne} 记失败流水并停在原地——
+     * 共享线路的抖动不能伪装成「试读跳过」，否则这批章节会被永久跳过。</p>
      */
     private ChapterSample fetchChapter(String bookId, String itemId, int chapterIndex, boolean thirdParty) {
         if (!thirdParty) {
@@ -215,12 +266,7 @@ public class AiVerifyService {
                     sampleCollector::awaitUpstreamSlot);
         }
         sampleCollector.awaitUpstreamSlot();
-        try {
-            return thirdPartyChapterClient.fetchChapter(itemId);
-        } catch (CrawlException failure) {
-            log.warn("第三方章节取失败，本章跳过: itemId={}, 原因={}", itemId, failure.getMessage());
-            return new ChapterSample(itemId, "", "", 0);
-        }
+        return thirdPartyChapterClient.fetchChapter(itemId);
     }
 
     private double roundScore(double score) {

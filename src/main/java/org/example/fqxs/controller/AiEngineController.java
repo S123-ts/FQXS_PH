@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.fqxs.client.AiDetectClient;
 import org.example.fqxs.entity.AiEngine;
+import org.example.fqxs.model.AiEngineEnabledRequest;
 import org.example.fqxs.model.AiEngineRequest;
 import org.example.fqxs.model.AiEngineTestRequest;
 import org.example.fqxs.model.AiModelUpdateRequest;
@@ -50,10 +51,12 @@ public class AiEngineController {
     public ApiResponse<Map<String, EngineStatus>> saveModel(@Valid @RequestBody AiModelUpdateRequest request) {
         log.info("切换 AI 模型: engine={}, model={}, models={}",
                 request.engine(), request.model(), request.models());
-        if (request.models() != null && !request.models().isEmpty()) {
+        if (request.models() != null) {
             aiEngineRegistry.updateModels(request.engine(), request.models());
-            return ApiResponse.data("已启用 " + request.models().size() + " 个型号，判定时随机调用",
-                    aiEngineRegistry.describeAll());
+            String message = request.models().isEmpty()
+                    ? "已清空型号池，判定改用当前型号 " + aiEngineRegistry.primaryModel(request.engine())
+                    : "已启用 " + request.models().size() + " 个型号，判定时随机调用";
+            return ApiResponse.data(message, aiEngineRegistry.describeAll());
         }
         if (request.model() == null || request.model().isBlank()) {
             throw new IllegalArgumentException("model 与 models 至少填一个");
@@ -91,6 +94,20 @@ public class AiEngineController {
                 .build();
         AiEngine saved = aiEngineRegistry.save(engine);
         return ApiResponse.data("已保存引擎 " + saved.getName(), aiEngineRegistry.describeAll());
+    }
+
+    /**
+     * 只切换启用状态：填了 Key 也可以先不启用，也允许全部停用。
+     *
+     * @param request 引擎标识与启用状态
+     * @return 保存后的全部引擎状态
+     */
+    @Operation(summary = "启用或停用引擎")
+    @PostMapping("/engines/enabled")
+    public ApiResponse<Map<String, EngineStatus>> setEngineEnabled(@Valid @RequestBody AiEngineEnabledRequest request) {
+        AiEngine saved = aiEngineRegistry.setEnabled(request.id(), request.enabled());
+        return ApiResponse.data((saved.isEnabled() ? "已启用 " : "已停用 ") + saved.getName(),
+                aiEngineRegistry.describeAll());
     }
 
     /**

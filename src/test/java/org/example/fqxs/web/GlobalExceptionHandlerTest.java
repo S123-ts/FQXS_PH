@@ -1,8 +1,10 @@
 package org.example.fqxs.web;
 
 import org.apache.catalina.connector.ClientAbortException;
+import org.example.fqxs.exception.OperationConflictException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.CannotCreateTransactionException;
@@ -33,6 +35,30 @@ class GlobalExceptionHandlerTest {
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, tx.getStatusCode());
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, dao.getStatusCode());
         assertTrue(String.valueOf(tx.getBody()).contains("数据库不可用"));
+    }
+
+    /**
+     * 唯一键冲突是并发写入，不是库挂了：回 503「库文件被占用」会把排查方向带偏。
+     */
+    @Test
+    void uniqueKeyConflictIsReportedAsConflictNotDatabaseDown() {
+        ResponseEntity<Object> response = handler.onDataConflict(
+                new DataIntegrityViolationException("Duplicate entry for key (book_id, engine, model)"));
+
+        assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+        String body = String.valueOf(response.getBody());
+        assertTrue(body.contains("另一处写入"), body);
+        assertFalse(body.contains("库文件"), body);
+    }
+
+    /** 逐章校验已在另一处推进：原样把「稍后再点」告诉用户，不能落成服务内部错误。 */
+    @Test
+    void concurrentVerifyIsReportedAsConflict() {
+        ResponseEntity<Object> response = handler.onOperationConflict(
+                new OperationConflictException("这本书的这个引擎正在另一处逐章校验，等它结束再点"));
+
+        assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+        assertTrue(String.valueOf(response.getBody()).contains("正在另一处逐章校验"));
     }
 
     /**

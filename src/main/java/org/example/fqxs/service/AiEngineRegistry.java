@@ -13,7 +13,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 
 /**
@@ -66,12 +65,22 @@ public class AiEngineRegistry {
     public List<String> availableFreeEngines() {
         List<String> engines = new ArrayList<>();
         for (AiEngine engine : all()) {
-            if (engine.isEnabled() && !engine.isSuspended()
-                    && engine.isOpenAiCompatible() && keyStore.hasKey(engine.getId())) {
+            if (isAvailableForFree(engine)) {
                 engines.add(engine.getId());
             }
         }
         return engines;
+    }
+
+    /**
+     * 可用免费引擎的统一判定：启用 + 未暂停 + OpenAI 兼容 + 已配 Key。
+     *
+     * <p>状态快照这类已经拿到记录的场景直接复用它，不要另写一套条件
+     * （同一约束在多处实现会漂移，见《代码审查-防御过度》）。</p>
+     */
+    public boolean isAvailableForFree(AiEngine engine) {
+        return engine.isEnabled() && !engine.isSuspended()
+                && engine.isOpenAiCompatible() && keyStore.hasKey(engine.getId());
     }
 
     /** 正在自动停用中的引擎：日志页面要显示「为什么被停、什么时候恢复、能否手动解除」。 */
@@ -186,7 +195,11 @@ public class AiEngineRegistry {
             unique.add(normalized);
         }
         if (unique.isEmpty()) {
-            throw new IllegalArgumentException("至少选择一个模型");
+            // 空池合法：modelsOf 会回退到主型号，所以「全不勾」等于只用当前型号
+            record.setModelPool("");
+            repository.save(record);
+            log.info("AI 型号池已清空: engine={}, 回退主型号 {}", engine, record.getModel());
+            return;
         }
         // 型号清单同步并集：勾选的型号若不在清单里，界面会看不到、也没法取消
         LinkedHashSet<String> catalog = new LinkedHashSet<>(splitModels(record.getModelsCsv()));
@@ -196,6 +209,25 @@ public class AiEngineRegistry {
         record.setModel(unique.iterator().next());
         repository.save(record);
         log.info("AI 型号池已更新: engine={}, models={}", engine, unique);
+    }
+
+    /**
+     * 只切换启用状态，不动其它字段。
+     *
+     * <p>与 {@link #save} 分开是为了让「填了 Key 但先不用」成为一等操作：save 的请求体要求
+     * baseUrl / model 齐全，停用一个引擎不该被迫回填这些。允许全部停用——此时初筛与校验
+     * 会按「没有可用引擎」报错，而不是在这里拦下。</p>
+     *
+     * @param id      引擎标识
+     * @param enabled 是否参与判定
+     * @return 保存后的记录
+     */
+    public AiEngine setEnabled(String id, boolean enabled) {
+        AiEngine record = require(id);
+        record.setEnabled(enabled);
+        AiEngine saved = repository.save(record);
+        log.info("AI 引擎启用状态: id={}, enabled={}", id, enabled);
+        return saved;
     }
 
     /**
@@ -243,20 +275,28 @@ public class AiEngineRegistry {
     }
 
     /** 已拿到记录时直接解析，避免 describeAll 这类批量场景逐条回库。 */
-    private static List<String> modelsOf(AiEngine record) {
+    public static List<String> modelsOf(AiEngine record) {
         List<String> pool = splitModels(record.getModelPool());
         return pool.isEmpty() ? List.of(record.getModel()) : pool;
-    }
-
-    /** 随机取一个勾选型号（多模型分摊），只有一个时就是它本身。 */
-    public String pickModel(String engine) {
-        List<String> models = modelsOf(engine);
-        return models.get(ThreadLocalRandom.current().nextInt(models.size()));
     }
 
     /** 主型号（逐章校验这类需要稳定进度的场景使用）。 */
     public String primaryModel(String engine) {
         return modelsOf(engine).get(0);
+    }
+
+    /**
+     * 家族去重后的型号列表：池里的上下文变体 / 日期快照 / {@code -flash} 这类同模型包装只留一个代表。
+     *
+     * <p>给后台逐章校验用——免费额度按次数算，同一模型的不同包装各跑一遍纯属浪费
+     * （归一规则与失败方向见 {@link ModelFamily}）。手动判定不用它：那是用户显式点的，
+     * 摊到全池反而能绕过单型号的 RPM 限流。</p>
+     *
+     * @param engine 引擎标识
+     * @return 非空型号列表，顺序与池一致
+     */
+    public List<String> distinctModelsOf(String engine) {
+        return ModelFamily.distinct(modelsOf(engine));
     }
 
     /**

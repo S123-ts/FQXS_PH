@@ -14,6 +14,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -62,16 +63,6 @@ class AiEngineRegistryTest {
     }
 
     @Test
-    void pickedModelAlwaysComesFromPool() {
-        when(repository.findById("glm-4-flash"))
-                .thenReturn(Optional.of(engine("glm-4-flash", "glm-4-flash,glm-4.7-flash")));
-
-        for (int i = 0; i < 50; i++) {
-            assertThat(registry.pickModel("glm-4-flash")).isIn("glm-4-flash", "glm-4.7-flash");
-        }
-    }
-
-    @Test
     void updateModelsDeduplicatesAndSetsPrimary() {
         AiEngine record = engine("glm-4-flash", null);
         when(repository.findById("glm-4-flash")).thenReturn(Optional.of(record));
@@ -84,12 +75,30 @@ class AiEngineRegistryTest {
     }
 
     @Test
-    void emptyPoolSelectionIsRejected() {
-        when(repository.findById("glm-4-flash")).thenReturn(Optional.of(engine("glm-4-flash", null)));
+    void emptyPoolSelectionClearsPoolAndKeepsPrimary() {
+        AiEngine record = engine("glm-4-flash", "glm-4-flash,glm-4.7-flash");
+        when(repository.findById("glm-4-flash")).thenReturn(Optional.of(record));
 
-        assertThatThrownBy(() -> registry.updateModels("glm-4-flash", List.of()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("至少选择一个");
+        registry.updateModels("glm-4-flash", List.of());
+
+        assertThat(record.getModelPool()).isEmpty();
+        assertThat(record.getModel()).isEqualTo("glm-4-flash");
+        assertThat(registry.modelsOf("glm-4-flash")).containsExactly("glm-4-flash");
+        verify(repository).save(record);
+    }
+
+    @Test
+    void setEnabledTogglesWithoutTouchingModelsOrKey() {
+        AiEngine record = engine("glm-4-flash", "glm-4-flash,glm-4.7-flash");
+        when(repository.findById("glm-4-flash")).thenReturn(Optional.of(record));
+
+        registry.setEnabled("glm-4-flash", false);
+
+        assertThat(record.isEnabled()).isFalse();
+        assertThat(record.getModel()).isEqualTo("glm-4-flash");
+        assertThat(record.getModelPool()).isEqualTo("glm-4-flash,glm-4.7-flash");
+        verify(repository).save(record);
+        verify(keyStore, never()).save(any(), any());
     }
 
     @Test

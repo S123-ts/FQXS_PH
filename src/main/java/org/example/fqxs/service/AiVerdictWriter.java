@@ -34,10 +34,10 @@ public class AiVerdictWriter {
      * 「10 章全 95%」的假象（实际只有 1 章命中），详情面板与加权平均都会被带偏。</p>
      *
      * @param flag   1=非 AI / 2=AI / 3=疑似 / 0=未完成（逐章未查完的中间步）
-     * @param score  AI 概率（0–100）
+     * @param score  AI 概率（0–100）；null 表示这一轮没有证据（进度/失败），落库与展示都按「—」处理
      * @param reason 判定理由摘要
      */
-    public record RoundVerdict(int flag, double score, String reason) {
+    public record RoundVerdict(int flag, Double score, String reason) {
     }
 
     private final NovelAiVerdictRepository verdictRepository;
@@ -86,7 +86,7 @@ public class AiVerdictWriter {
                            String kind, int sampleChapters) {
         Runnable write = () -> transactionTemplate.executeWithoutResult(status -> {
             upsert(bookId, engine, model, new RoundVerdict(aiFlag, aiScore, reason), null, 0, promptId,
-                    sampleMode, sampleSpan, kind, 0, sampleChapters);
+                    sampleMode, sampleSpan, kind, 0, sampleChapters, true);
             novelService.applyFreeVerdict(bookId, aiFlag, aiScore, engine);
         });
         try {
@@ -148,28 +148,38 @@ public class AiVerdictWriter {
     public void writeVerify(String bookId, String engine, String model, RoundVerdict detail, RoundVerdict round,
                             int chaptersChecked, int chapterNo, String promptId, boolean aiHit,
                             String sampleMode, int sampleChapters) {
-        transactionTemplate.executeWithoutResult(status -> {
+        Runnable write = () -> transactionTemplate.executeWithoutResult(status -> {
             upsert(bookId, engine, model, detail, round, chaptersChecked, promptId, sampleMode, null,
-                    NovelAiVerdictLog.KIND_VERIFY, chapterNo, sampleChapters);
+                    NovelAiVerdictLog.KIND_VERIFY, chapterNo, sampleChapters, true);
             novelService.applyManualVerifyVerdict(bookId, engine, detail.flag(), chaptersChecked,
                     detail.score(), aiHit);
         });
+        try {
+            write.run();
+        } catch (DataIntegrityViolationException conflict) {
+            // 两个标签页同时对同一型号逐章校验：find 都读到「没有」，后插的撞唯一键。
+            // 与 writeSweep 同构重跑一次，这次命中已存在的行并更新；
+            // 否则会冒到全局处理器、被当成「库文件被占用」回 503，排查方向全错
+            log.warn("并发写入逐章结论，改为更新已有行: bookId={}, engine={}, model={}", bookId, engine, model);
+            write.run();
+        }
     }
 
     /**
      * 仅推进进度（试读/VIP 跳过、或已查完上限）：更新明细，不动主表综合结论。
      *
-     * <p>流水固定记 {@code flag=0}：这一章没有判定，它只是进度。原先流水沿用明细的
-     * {@code keptHit ? 2}，会让前端把「试读跳过」那一行当成命中证据参与选行。</p>
+     * <p>流水固定记 {@code flag=0} 且不带分数与章数权重：这一章没有判定，它只是进度。
+     * 原先流水沿用明细的 {@code keptHit ? 2} 与上一轮分数，会让前端把「试读跳过」那一行
+     * 当成命中证据参与选行，详情里还会显示成「未完成 12%」——看起来像判过、只是没出结论。</p>
      */
     public void writeProgress(String bookId, String engine, String model, int aiFlag, double aiScore,
                               String reason, int chaptersChecked, int chapterNo, String promptId,
                               String sampleMode) {
         transactionTemplate.executeWithoutResult(status ->
                 upsert(bookId, engine, model, new RoundVerdict(aiFlag, aiScore, reason),
-                        new RoundVerdict(0, aiScore, reason),
+                        new RoundVerdict(0, null, reason),
                         chaptersChecked, promptId, sampleMode, null,
-                        NovelAiVerdictLog.KIND_PROGRESS, chapterNo, 0));
+                        NovelAiVerdictLog.KIND_PROGRESS, chapterNo, 0, false));
     }
 
     /**
@@ -200,7 +210,8 @@ public class AiVerdictWriter {
 
     private void upsert(String bookId, String engine, String model, RoundVerdict detail, RoundVerdict round,
                         int chaptersChecked, String promptId,
-                        String sampleMode, String sampleSpan, String kind, int chapterNo, int sampleChapters) {
+                        String sampleMode, String sampleSpan, String kind, int chapterNo, int sampleChapters,
+                        boolean touchCheckedTime) {
         NovelAiVerdict verdictRow = verdictRepository.findByBookIdAndEngineAndModel(bookId, engine, model)
                 .orElseGet(() -> {
                     NovelAiVerdict fresh = new NovelAiVerdict();
@@ -221,7 +232,12 @@ public class AiVerdictWriter {
         if (sampleSpan != null) {
             verdictRow.setSampleSpan(sampleSpan);
         }
-        verdictRow.setCheckedTime(DateUtil.now());
+        /* 纯进度写入不是一次判定：不刷新明细的「最近判定时间」，
+           否则详情卡头看起来像刚判过。新行没有旧时间可用，仍要填（列非空） */
+        boolean freshRow = verdictRow.getId() == null;
+        if (touchCheckedTime || freshRow) {
+            verdictRow.setCheckedTime(DateUtil.now());
+        }
         verdictRepository.save(verdictRow);
 
         // 流水默认与明细同口径；逐章校验会显式传入"本章实际"的那一份

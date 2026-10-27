@@ -71,7 +71,7 @@ public class AiFaultController {
     }
 
     /**
-     * 手动解除某引擎的自动停用（不等 48 小时自然到期）。
+     * 手动解除某引擎的自动停用（不等停用时长自然到期）。
      *
      * @param request 引擎标识
      * @return 仅状态
