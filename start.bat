@@ -47,7 +47,7 @@ if "%KILLED%"=="1" timeout /t 1 >nul 2>&1
 if not defined APP_ADMIN_TOKEN set "APP_ADMIN_TOKEN="
 if not defined DB_URL set "DB_URL=jdbc:h2:file:./data/fqxs;DB_CLOSE_ON_EXIT=FALSE"
 
-:: 5b. Load local AI keys (GLM / QWEN / ZHUQUE) from ai-keys.bat if present.
+:: 5b. Load local AI keys (GLM / QIANFAN / QWEN) from ai-keys.bat if present.
 ::     That file is gitignored; ai-keys.bat.example is the template. Keys are
 ::     only passed as environment variables, never written into the DB or repo.
 if exist "%~dp0ai-keys.bat" (
