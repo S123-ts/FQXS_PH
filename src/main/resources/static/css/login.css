@@ -140,7 +140,7 @@
 }
 
 .login-eye:hover {
-    color: var(--accent);
+    color: var(--accent-text);
     background: var(--accent-soft);
 }
 
@@ -170,7 +170,7 @@
     height: 40px;
     border: 0;
     border-radius: var(--r-sm);
-    background: var(--accent);
+    background: var(--accent-strong);
     color: #fff;
     font-size: var(--fs-md);
     font-weight: 600;
@@ -180,7 +180,7 @@
 }
 
 .login-submit:hover:not(:disabled) {
-    background: var(--accent-hover);
+    background: var(--accent-strong-hover);
 }
 
 .login-submit:active:not(:disabled) {

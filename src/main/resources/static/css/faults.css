@@ -1,118 +1,157 @@
 /* ============================================================
    css/faults.css - 模型调用失败日志页
-   单独成文件：这一页是独立静态页，不复用主界面的模态面板样式，
-   也避免和 components.css 里正在调整的工具栏布局互相影响。
-   颜色只用 theme.css 已有的变量与继承，缺变量时宁可退化也不写死色值。
+   页头 / tab / 工具条 / chips / 表格外框在 ai-logs.css；这里只管
+   停用块、失败表的列宽、片段展开与手机卡片布局。
+   颜色只吃 base.css 的令牌，明暗主题跟随系统。
    ============================================================ */
 
-/* 页头与正文同一宽度并居中：否则宽屏下右侧按钮贴视口、表格停在左侧 */
-.fault-head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 16px;
-    flex-wrap: wrap;
-    max-width: 1320px;
-    margin: 0 auto;
-}
-
-.fault-title {
-    margin: 0;
-    font-size: 18px;
-}
-
-/* 与审查记录页一致：出口贴右，而不是紧跟标题 */
-.fault-head-actions {
-    margin-left: auto;
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
 .fault-main {
-    padding: 0 16px 32px;
-    max-width: 1320px;
+    max-width: var(--logs-w);
     margin: 0 auto;
+    padding: 0 16px 32px;
 }
 
-.fault-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    padding: 10px 0 14px;
-}
-
-.fault-label {
-    font-size: 13px;
-    opacity: .78;
-}
-
-/* 停用中的引擎提示块：有停用才显示内容，空的时候整块收起不留空白 */
+/* ---------- 停用中的引擎：警示色块 ----------
+   有停用才显示内容，空的时候整块收起不留空白 */
 .fault-suspended:not(:empty) {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
-    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+    padding: 11px 14px;
+    background: var(--warn-soft);
+    border: 1px solid var(--warn-border);
+    border-radius: var(--r-md);
+}
+
+.fault-susp-head {
+    display: flex;
+    align-items: baseline;
+    gap: 4px 8px;
+    flex-wrap: wrap;
+    color: var(--warn);
+    font-size: var(--fs-xs);
+}
+
+.fault-susp-head strong {
+    color: var(--warn);
+    font-size: var(--fs-sm);
 }
 
 .fault-susp-item {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px 10px;
     flex-wrap: wrap;
-    padding: 4px 0;
+    padding-top: 7px;
+    border-top: 1px dashed var(--warn-border);
+}
+
+.fault-susp-main {
+    display: flex;
+    align-items: baseline;
+    gap: 2px 10px;
+    flex: 1 1 320px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.fault-susp-main > strong {
+    color: var(--text-1);
+    font-size: var(--fs-md);
+}
+
+.fault-susp-until {
+    color: var(--warn);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
 }
 
 .fault-susp-reason {
-    font-size: 12px;
-    opacity: .76;
-    flex: 1 1 240px;
+    flex-basis: 100%;
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+/* ---------- 摘要 + 类型 chips ---------- */
+.fault-overview {
+    display: flex;
+    align-items: center;
+    gap: 8px 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
 }
 
 .fault-summary {
-    margin: 0 0 10px;
-    font-size: 13px;
-    opacity: .82;
+    margin: 0;
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
 }
 
+.fault-overview .logs-chips {
+    margin-left: auto;
+}
+
+/* ---------- 失败表 ---------- */
 .fault-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: var(--fs-sm);
     table-layout: fixed;
 }
 
 .fault-table th,
 .fault-table td {
     text-align: left;
-    padding: 7px 8px;
+    padding: 8px 10px;
     border-bottom: 1px solid var(--border);
     vertical-align: top;
     overflow-wrap: anywhere;
 }
 
 .fault-table th {
+    background: var(--surface-2);
+    color: var(--text-2);
     font-weight: 600;
-    opacity: .8;
     white-space: nowrap;
 }
 
-/* 原因与返回片段是主角，时间/型号次之 */
-.fault-table th:nth-child(6),
-.fault-table td:nth-child(6) {
-    width: 26%;
+.fault-table tbody tr:last-child td {
+    border-bottom: 0;
 }
 
-.fault-table th:nth-child(7),
-.fault-table td:nth-child(7) {
-    width: 30%;
+/* 桌面长表：整行 hover 才能把「时间→原因→片段」横向串起来读 */
+.fault-table tbody tr:hover td {
+    background: var(--surface-2);
 }
 
-/* 时间必须整行显示：窄列下它会按「2026-10-/22/19:09:59」逐段换行 */
+/* 列宽显式给：fixed 布局下不给就按内容均分，型号与片段会挤成竖排。
+   书列 15% 是为了 19 位 bookId 不折断（1000px 档最挤） */
+@media (min-width: 901px) {
+    .fault-table th:nth-child(1),
+    .fault-table td:nth-child(1) { width: 12%; }
+    .fault-table th:nth-child(2),
+    .fault-table td:nth-child(2) { width: 8%; }
+    .fault-table th:nth-child(3),
+    .fault-table td:nth-child(3) { width: 10%; }
+    .fault-table th:nth-child(4),
+    .fault-table td:nth-child(4) { width: 8%; }
+    .fault-table th:nth-child(5),
+    .fault-table td:nth-child(5) { width: 4%; }
+    .fault-table th:nth-child(6),
+    .fault-table td:nth-child(6) { width: 23%; }
+    .fault-table th:nth-child(7),
+    .fault-table td:nth-child(7) { width: 20%; }
+    .fault-table th:nth-child(8),
+    .fault-table td:nth-child(8) { width: 15%; }
+}
+
 .fault-time {
     white-space: nowrap;
-    opacity: 0.78;
+    color: var(--text-3);
     font-variant-numeric: tabular-nums;
 }
 
@@ -124,57 +163,111 @@
     }
 }
 
-/* 桌面列宽：原因 21% + 片段 18%，剩余六列按内容分。
-   不给比例时会按内容均分，时间与型号各剩约 7%，被迫竖排。 */
-@media (min-width: 901px) {
-    .fault-table th:nth-child(1),
-    .fault-table td:nth-child(1) { width: 14%; }
-    .fault-table th:nth-child(2),
-    .fault-table td:nth-child(2) { width: 10%; }
-    .fault-table th:nth-child(3),
-    .fault-table td:nth-child(3) { width: 11%; }
-    .fault-table th:nth-child(4),
-    .fault-table td:nth-child(4) { width: 9%; }
-    .fault-table th:nth-child(5),
-    .fault-table td:nth-child(5) { width: 5%; }
-    .fault-table th:nth-child(6),
-    .fault-table td:nth-child(6) { width: 21%; }
-    .fault-table th:nth-child(7),
-    .fault-table td:nth-child(7) { width: 18%; }
-    .fault-table th:nth-child(8),
-    .fault-table td:nth-child(8) { width: 12%; }
+.fault-http {
+    color: var(--text-2);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.fault-book {
+    color: var(--text-3);
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 11px;
+}
+
+/* 类型徽章：限流黄、鉴权/上游故障红、网络蓝，扫一眼能分类 */
+.fault-kind {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: var(--r-full);
+    background: var(--surface-3);
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.fault-kind[data-kind="auth"],
+.fault-kind[data-kind="server"] {
+    background: var(--accent-soft-2);
+    color: var(--danger);
+}
+
+.fault-kind[data-kind="rate"] {
+    background: var(--warn-soft);
+    color: var(--warn);
+}
+
+.fault-kind[data-kind="network"] {
+    background: var(--info-soft);
+    color: var(--info);
+}
+
+/* ---------- 原因 / 上游片段：完整内容进 DOM，折叠两行，点击展开 ---------- */
+.fault-reason {
+    color: var(--text-1);
 }
 
 .fault-excerpt {
-    opacity: .84;
+    color: var(--text-2);
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: 12px;
+    line-height: 1.5;
+}
+
+.fault-clip {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+}
+
+.fault-table td[role="button"] {
+    cursor: pointer;
+}
+
+.fault-table td[role="button"]:hover {
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.fault-table td.is-open .fault-clip {
+    display: block;
+    overflow: visible;
+    -webkit-line-clamp: unset;
+    white-space: pre-wrap;
+}
+
+/* 展开态用实底标出来，并压过 hover 的背景 */
+.fault-table tbody tr td.is-open {
+    background: var(--surface-2);
 }
 
 .fault-empty {
+    padding: 22px 12px;
     text-align: center;
-    opacity: .6;
+    color: var(--text-3);
 }
 
-/* 窄屏：表格横向滚动，不把列挤成一团。
-   只藏次要列——「类型」是给人看的分类必须留着，HTTP 码与它重复、书名可点进明细看。 */
-@media (max-width: 760px) {
-    .fault-table {
-        font-size: 12px;
-    }
+.fault-empty-hint {
+    margin-top: 4px;
+    font-size: var(--fs-xs);
+}
 
-    .fault-table th:nth-child(5),
-    .fault-table td:nth-child(5),
-    .fault-table th:nth-child(8),
-    .fault-table td:nth-child(8) {
-        display: none;
-    }
+.fault-empty a {
+    color: var(--accent-text);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.fault-empty a:hover {
+    text-decoration: underline;
 }
 
 /* ---------- 手机 / 平板卡片（≤900px） ----------
-   六列表格在窄屏会把时间、型号、类型逐字竖排，读不出完整信息；768 的平板
-   同样放不下这张表。这里把每行改成一张卡片：时间/类型/HTTP → 引擎·型号 →
-   原因 → 可滚动的上游片段 → 书名。901px 以上仍是原来的表格。 */
+   六列表格在窄屏会把时间、型号、类型逐字竖排；这一档把每行改成一张卡片：
+   时间/类型/HTTP → 引擎·型号 → 原因 → 可展开的上游片段 → 书名。
+   折叠的片段不再用内部滚动条（手机上「滚动里套滚动」很难操作）。 */
 @media (max-width: 900px) {
     .fault-table {
         display: block;
@@ -213,6 +306,10 @@
     .fault-table td:nth-child(n) {
         width: auto;
     }
+    /* 卡片自身承担底色，行 hover 不再整片变色 */
+    .fault-table tbody tr:hover td {
+        background: transparent;
+    }
     .fault-table td:nth-child(1) {
         grid-area: time;
         align-self: center;
@@ -239,13 +336,6 @@
         grid-area: type;
         justify-self: start;
         align-self: center;
-        padding: 1px 8px;
-        border-radius: var(--r-full);
-        background: var(--surface-3);
-        color: var(--text-2);
-        font-size: 11px;
-        font-weight: 600;
-        white-space: nowrap;
     }
     .fault-table td:nth-child(5) {
         grid-area: http;
@@ -268,18 +358,12 @@
         content: "原因 ";
         color: var(--text-3);
     }
-    /* 片段可能是一整段 JSON：给固定最大高度 + 内部滚动，
-       既不再把卡片撑成半屏，也不会像省略号那样把内容彻底丢掉 */
+    /* 片段给一个浅底代码块；折叠两行，点击后展示完整 JSON */
     .fault-table td:nth-child(7) {
         grid-area: excerpt;
-        max-height: 6em;
-        overflow: auto;
-        overscroll-behavior: contain;
         padding: 6px 8px;
         border-radius: var(--r-sm);
         background: var(--surface-2);
-        color: var(--text-2);
-        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
         font-size: 11px;
         line-height: 1.45;
     }
@@ -311,5 +395,23 @@
         grid-column: 1 / -1;
         padding: 14px 0;
         text-align: center;
+    }
+
+    /* 停用块：动作换到下一行并占满，拇指好点 */
+    .fault-susp-item > .btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+@media (max-width: 640px) {
+    .fault-overview {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .fault-overview .logs-chips {
+        margin-left: 0;
     }
 }

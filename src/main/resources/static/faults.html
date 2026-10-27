@@ -7,32 +7,51 @@
     <link rel="stylesheet" href="/css/base.css">
     <link rel="stylesheet" href="/css/components.css">
     <link rel="stylesheet" href="/css/theme.css">
+    <link rel="stylesheet" href="/css/ai-logs.css">
     <link rel="stylesheet" href="/css/faults.css">
     <script type="module" src="/js/faults.js"></script>
 </head>
 <body>
-<!-- ===== 顶部：回榜单 + 查询条件（CSP 是 script-src 'self'，脚本与样式都只能走外部文件） ===== -->
-<header class="fault-head">
-    <h1 class="fault-title">模型调用失败日志</h1>
-    <div class="fault-head-actions">
-        <a class="btn btn-ghost" href="/records">📜 审查记录</a>
-        <a class="btn btn-ghost" href="/">← 回榜单</a>
+<!-- ===== 顶部：子站页头（回榜单 + 标题 + 审查记录/失败日志 tab） =====
+     CSP 是 script-src 'self'，脚本与样式只能走外部文件 -->
+<header class="logs-head">
+    <div class="logs-head-inner">
+        <div class="logs-head-main">
+            <a class="btn btn-ghost btn-sm logs-back" href="/" title="回榜单">← 回榜单</a>
+            <div class="logs-title-group">
+                <h1 class="logs-title fault-title">模型调用失败日志</h1>
+                <p class="logs-sub">失败原因 · 上游返回片段 · 自动停用</p>
+            </div>
+        </div>
+        <nav class="logs-tabs" aria-label="AI 日志视图">
+            <a class="logs-tab" href="/records">
+                <span class="logs-tab-ico" aria-hidden="true">📜</span>审查记录
+            </a>
+            <a class="logs-tab is-active" href="/faults" aria-current="page">
+                <span class="logs-tab-ico" aria-hidden="true">📋</span>失败日志
+            </a>
+        </nav>
     </div>
 </header>
 
 <main class="fault-main">
-    <section class="fault-toolbar" aria-label="查询条件">
-        <label class="fault-label" for="faultWindow">时间窗口</label>
-        <select class="select" id="faultWindow">
-            <option value="24">最近 24 小时</option>
-            <option value="72" selected>最近 3 天</option>
-            <option value="168">最近 7 天</option>
-            <option value="720">最近 30 天</option>
-        </select>
-        <label class="fault-label" for="faultEngine">引擎</label>
-        <select class="select" id="faultEngine">
-            <option value="">全部引擎</option>
-        </select>
+    <section class="logs-toolbar fault-toolbar" aria-label="查询条件">
+        <div class="logs-field">
+            <label for="faultWindow">时间窗口</label>
+            <select class="select" id="faultWindow">
+                <option value="24">最近 24 小时</option>
+                <option value="72" selected>最近 3 天</option>
+                <option value="168">最近 7 天</option>
+                <option value="720">最近 30 天</option>
+            </select>
+        </div>
+        <div class="logs-field">
+            <label for="faultEngine">引擎</label>
+            <select class="select" id="faultEngine">
+                <option value="">全部引擎</option>
+            </select>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="faultReset" hidden>清除筛选</button>
         <button type="button" class="btn btn-tonal" id="faultRefresh">
             <span class="btn-text">刷新</span>
         </button>
@@ -41,25 +60,30 @@
     <!-- 停用中的引擎单独一块：这是"多次不行就停用"的可见结果，也是解除入口 -->
     <section class="fault-suspended" id="faultSuspended" aria-live="polite"></section>
 
-    <p class="fault-summary" id="faultSummary">正在加载…</p>
+    <div class="fault-overview">
+        <p class="fault-summary" id="faultSummary">正在加载…</p>
+        <div class="logs-chips" id="faultKindChips" role="group" aria-label="按失败类型筛选"></div>
+    </div>
 
-    <table class="fault-table">
-        <thead>
-        <tr>
-            <th scope="col">时间</th>
-            <th scope="col">引擎</th>
-            <th scope="col">型号</th>
-            <th scope="col">类型</th>
-            <th scope="col">HTTP</th>
-            <th scope="col">原因</th>
-            <th scope="col">上游返回片段</th>
-            <th scope="col">当时判的书</th>
-        </tr>
-        </thead>
-        <tbody id="faultRows">
-        <tr><td colspan="8" class="fault-empty">—</td></tr>
-        </tbody>
-    </table>
+    <div class="logs-table-wrap">
+        <table class="fault-table">
+            <thead>
+            <tr>
+                <th scope="col">时间</th>
+                <th scope="col">引擎</th>
+                <th scope="col">型号</th>
+                <th scope="col">类型</th>
+                <th scope="col">HTTP</th>
+                <th scope="col">原因</th>
+                <th scope="col">上游返回片段</th>
+                <th scope="col">当时判的书</th>
+            </tr>
+            </thead>
+            <tbody id="faultRows">
+            <tr><td colspan="8" class="fault-empty">—</td></tr>
+            </tbody>
+        </table>
+    </div>
 </main>
 </body>
 </html>

@@ -50,7 +50,7 @@
     }
     .chrome-summary-action {
         flex-shrink: 0;
-        color: var(--accent-hover);
+        color: var(--accent-text);
         font-weight: 600;
         white-space: nowrap;
     }
@@ -68,6 +68,21 @@
     /* 两层控制行整体居中，避免窄屏出现贴左的“半截行” */
     .ctl-row {
         justify-content: center;
+    }
+
+    /* 481–768px 的 AI 工具簇：桌面单行排布约 923px，展开控制区会把整页
+       撑出横向滚动（docW 845 > 768）。这里让它独占整行并在组内换行；
+       ≤480 的网格布局仍由下方手机档接管 */
+    .ctl-actions > .ctl-tail {
+        flex-basis: 100%;
+        margin-left: 0;
+    }
+    .ctl-ai {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+    .ctl-ai .select {
+        min-width: 0;
     }
 
     /* 筛选栏换行：多选下拉独占一行 */

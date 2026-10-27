@@ -1,0 +1,342 @@
+/* ============================================================
+   css/ai-logs.css - 审查记录 / 失败日志 两个只读子页的共享壳层
+   只被 records.html 与 faults.html 引用：sticky 子站页头、tab 切换、
+   卡片式工具条、筛选 chips、表格外框与空态。
+   颜色只吃 base.css 的令牌，明暗主题跟随系统；页面各自的表格列宽
+   与卡片化规则仍留在 records.css / faults.css。
+   ============================================================ */
+
+:root {
+    --logs-w: 1320px;
+}
+
+/* ---------- sticky 子站页头 ----------
+   两页是同一件事的两个视角：页头常驻，滚动长表时仍能一键换页/回榜单 */
+.logs-head {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-nav);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+}
+
+.logs-head-inner {
+    display: flex;
+    align-items: center;
+    gap: 10px 12px;
+    flex-wrap: wrap;
+    max-width: var(--logs-w);
+    min-height: 58px;
+    margin: 0 auto;
+    padding: 9px 16px;
+}
+
+.logs-head-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+/* 回榜单：页头里最小的动作，不与 tab 抢视线 */
+.logs-back {
+    flex: 0 0 auto;
+}
+
+.logs-title-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.logs-title {
+    margin: 0;
+    font-size: 18px;
+    line-height: 1.25;
+    white-space: nowrap;
+}
+
+.logs-sub {
+    margin: 0;
+    color: var(--text-3);
+    font-size: 12px;
+    line-height: 1.3;
+    white-space: nowrap;
+}
+
+/* ---------- 页头 tab：两页同级，当前页高亮 ---------- */
+.logs-tabs {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: auto;
+    padding: 3px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-full);
+}
+
+.logs-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 13px;
+    border-radius: var(--r-full);
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.logs-tab:hover {
+    background: var(--surface);
+    color: var(--accent-text);
+}
+
+.logs-tab.is-active {
+    background: var(--surface);
+    color: var(--accent-text);
+    font-weight: 600;
+    box-shadow: var(--shadow-sm);
+}
+
+.logs-tab-ico {
+    font-size: 13px;
+    line-height: 1;
+}
+
+/* ---------- 卡片式工具条：查询条件与刷新同属一行 ---------- */
+.logs-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px 10px;
+    flex-wrap: wrap;
+    margin: 16px 0 16px;
+    padding: 9px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-sm);
+    font-size: var(--fs-sm);
+}
+
+.logs-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.logs-field > label {
+    color: var(--text-2);
+    white-space: nowrap;
+}
+
+/* 自动刷新开关：与下拉同高的一枚胶囊，勾选态用主色描边 */
+.logs-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-full);
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.logs-switch:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+}
+
+.logs-switch input {
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.logs-updated {
+    margin-left: auto;
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 筛选 chips ---------- */
+.logs-chips {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.logs-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-full);
+    background: var(--surface);
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    line-height: 1.6;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.logs-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent-text);
+}
+
+.logs-chip.is-active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-weight: 600;
+}
+
+.logs-chip-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 17px;
+    padding: 0 5px;
+    border-radius: var(--r-full);
+    background: var(--surface-3);
+    color: var(--text-2);
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.logs-chip.is-active .logs-chip-count {
+    background: var(--surface);
+    color: var(--accent-text);
+}
+
+/* 结论点：与主界面 AI 徽章同语义（红=AI、黄=疑似、绿=非 AI） */
+.logs-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+}
+
+.logs-dot-ai { background: var(--danger); }
+.logs-dot-suspect { background: var(--warn); }
+.logs-dot-human { background: var(--success); }
+.logs-dot-failed { background: var(--text-3); }
+
+/* ---------- 表格外框：桌面把整张表包成一张卡片 ---------- */
+.logs-table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+}
+
+.logs-table-wrap > table {
+    width: 100%;
+}
+
+/* 表格内的一行小提示（空态 / 截断说明） */
+.logs-empty {
+    padding: 18px 12px;
+    text-align: center;
+    color: var(--text-3);
+    font-size: var(--fs-sm);
+    line-height: 1.6;
+}
+
+.logs-empty a {
+    color: var(--accent-text);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.logs-empty a:hover {
+    text-decoration: underline;
+}
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 900px) {
+    /* 卡片档的每一行自带卡片边框，外层表框要去掉，否则是"框里套框" */
+    .logs-table-wrap {
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        overflow: visible;
+    }
+}
+
+@media (max-width: 640px) {
+    .logs-head-inner {
+        gap: 8px;
+        min-height: 0;
+        padding: 8px 12px 10px;
+    }
+
+    .logs-head-main {
+        gap: 8px;
+        width: 100%;
+    }
+
+    .logs-sub {
+        display: none;
+    }
+
+    .logs-title {
+        font-size: var(--fs-lg);
+    }
+
+    /* tab 独占一行，两颗各占一半，点按热区足够大 */
+    .logs-tabs {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .logs-tab {
+        flex: 1 1 0;
+        justify-content: center;
+        padding: 7px 10px;
+    }
+
+    .logs-toolbar {
+        margin: 12px 0;
+        padding: 8px 10px;
+    }
+
+    .logs-updated {
+        margin-left: 0;
+        width: 100%;
+        order: 9;
+    }
+
+    .logs-chips {
+        flex-wrap: nowrap;
+        width: 100%;
+        overflow-x: auto;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+    }
+
+    .logs-chips::-webkit-scrollbar {
+        display: none;
+    }
+}

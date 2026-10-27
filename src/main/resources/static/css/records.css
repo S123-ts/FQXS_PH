@@ -1,65 +1,13 @@
 /* ============================================================
    css/records.css - 审查记录页（章节拉取 / 正在审查 / 判定结果）
-   独立静态页，与 faults.css 同一套写法：只吃 base.css 的设计令牌，
-   明暗主题跟随系统，不写死色值（缺变量时宁可退化）。
+   页头、tab、工具条、chips 在 ai-logs.css；这里只管本页三块内容、
+   表格列宽与手机卡片布局。只吃 base.css 的设计令牌，明暗主题跟随系统。
    ============================================================ */
 
-/* 页头与正文同一宽度并居中：否则宽屏下右侧按钮贴视口、表格停在左侧 */
-.rec-head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 16px;
-    flex-wrap: wrap;
-    max-width: 1320px;
-    margin: 0 auto;
-}
-
-.rec-title {
-    margin: 0;
-    font-size: 18px;
-}
-
-/* 两个外链贴右：主标题左、动作右，与失败日志页一致 */
-.rec-head-actions {
-    margin-left: auto;
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
 .rec-main {
-    padding: 0 16px 40px;
-    max-width: 1320px;
+    max-width: var(--logs-w);
     margin: 0 auto;
-}
-
-.rec-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    padding: 10px 0 14px;
-    font-size: 13px;
-}
-
-.rec-toolbar label {
-    opacity: .78;
-}
-
-.rec-auto {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-    user-select: none;
-}
-
-.rec-updated {
-    margin-left: auto;
-    font-size: 12px;
-    opacity: .6;
-    font-variant-numeric: tabular-nums;
+    padding: 0 16px 40px;
 }
 
 /* ---------- KPI ---------- */
@@ -68,20 +16,45 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 10px;
-    margin-bottom: 18px;
+    margin-bottom: 16px;
 }
 
 .rec-kpi-item {
+    position: relative;
+    overflow: hidden;
     border: 1px solid var(--border);
     border-radius: var(--r-md);
     background: var(--surface);
-    padding: 10px 12px;
+    box-shadow: var(--shadow-sm);
+    padding: 10px 12px 10px 15px;
+}
+
+/* 左侧语义色条：拉取=信息蓝、在飞=主色、结论=中性；
+   无左侧条时三张卡在灰底上完全一样，扫一眼分不出重点 */
+.rec-kpi-item::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: var(--border-strong);
+}
+
+.rec-kpi-fetch::before {
+    background: var(--info);
+}
+
+.rec-kpi-running.is-live::before {
+    background: var(--accent);
+}
+
+.rec-kpi-running.is-live .rec-kpi-value {
+    color: var(--accent-text);
 }
 
 .rec-kpi-label {
     display: block;
     font-size: 12px;
-    opacity: .7;
+    color: var(--text-3);
     margin-bottom: 4px;
 }
 
@@ -96,40 +69,80 @@
     display: block;
     margin-top: 2px;
     font-size: 12px;
-    opacity: .66;
+    color: var(--text-3);
 }
 
-/* ---------- 分区 ---------- */
+/* 结论分布：色点 + 数字，与下方徽章/chips 同一套配色 */
+.rec-kpi-mix {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+.rec-kpi-part {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.rec-kpi-sep {
+    opacity: .35;
+}
+
+/* ---------- 分区：每块一张卡片，块间靠卡片边界分隔 ---------- */
 
 .rec-block {
-    margin-bottom: 20px;
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
 }
 
 .rec-block-title {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 0 0 8px;
+    margin: 0;
     font-size: 15px;
 }
 
-/* 判定结果标题行：标题 + 计数 + 书名检索。检索框贴右，放不下时整行换行，
-   不去压表格列宽（fixed 布局下标题区溢出会直接变成整页横向滚动） */
+/* 标题行：标题 + 计数左，说明/检索右；放不下时整行换行 */
 .rec-block-head {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px 12px;
     flex-wrap: wrap;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
 }
-.rec-block-head .rec-block-title {
-    margin-bottom: 0;
+
+.rec-block-note {
+    margin-left: auto;
+    color: var(--text-3);
+    font-size: 12px;
 }
+
 .rec-search {
     margin-left: auto;
     width: min(260px, 100%);
     min-height: 34px;
     font-size: 14px;
+}
+
+/* 判定结果的筛选行：结论 chips 左，说明右 */
+.rec-result-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.rec-result-bar .rec-hint {
+    margin: 0 0 0 auto;
 }
 
 .rec-count {
@@ -148,9 +161,18 @@
 }
 
 .rec-hint {
-    margin: 0 0 8px;
+    margin: 0;
     font-size: 12px;
-    opacity: .6;
+    color: var(--text-3);
+}
+
+/* 块本身已是卡片，内层表格不再重复描边；行分隔线足以表达结构 */
+.rec-block .logs-table-wrap {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
 }
 
 /* ---------- 正在审查 ---------- */
@@ -159,6 +181,17 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+}
+
+/* 空闲态收成一行虚线提示：没有在飞动作时不该占掉半屏 */
+.rec-running.is-empty .rec-empty {
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px dashed var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    text-align: left;
+    font-size: 12px;
 }
 
 .rec-run-item {
@@ -225,8 +258,9 @@
 }
 
 .rec-table th {
+    background: var(--surface-2);
+    color: var(--text-2);
     font-weight: 600;
-    opacity: .8;
     white-space: nowrap;
 }
 
@@ -295,7 +329,17 @@
     padding: 14px 0;
     text-align: center;
     font-size: 13px;
-    opacity: .6;
+    color: var(--text-3);
+}
+
+/* 桌面长表：整行 hover 便于横向读同一行的各列；手机卡片档不吃这条 */
+@media (min-width: 901px) {
+    .rec-block .rec-table tbody tr:hover td {
+        background: var(--surface-2);
+    }
+    .rec-block .rec-table tbody tr:last-child td {
+        border-bottom: 0;
+    }
 }
 
 /* ---------- 结论徽章：与主界面的 AI 徽章同语义（红=AI、黄=疑似、绿=非 AI） ---------- */
@@ -330,11 +374,18 @@
 }
 
 /* 调用失败：虚线描边与「未命中」的实心灰区分开——
-   失败是「没判成」，未命中是「判了但不是 AI」，两者含义相反 */
+   失败是「没判成」，未命中是「判了但不是 AI」，两者含义相反。
+   这一枚是链接（跳失败日志页），不能带默认下划线 */
 .rec-flag-failed {
     background: transparent;
-    border: 1px dashed var(--border);
+    border: 1px dashed var(--border-strong);
     color: var(--text-2);
+    text-decoration: none;
+}
+
+a.rec-flag-failed:hover {
+    border-color: var(--accent);
+    color: var(--accent-text);
 }
 
 /* 进度条：逐章校验的 k/10 */
@@ -398,10 +449,6 @@
     .rec-run-meta {
         margin-left: 0;
     }
-
-    .rec-updated {
-        margin-left: 0;
-    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -422,7 +469,7 @@
         gap: 8px;
     }
     .rec-kpi-item {
-        padding: 8px 10px;
+        padding: 8px 10px 8px 13px;
     }
     .rec-kpi-label {
         margin-bottom: 2px;
@@ -432,8 +479,36 @@
         font-size: 18px;
     }
     .rec-kpi-sub {
-        font-size: 11px;
+        font-size: 10px;
         line-height: 1.35;
+    }
+    /* 三张卡并排后每张只有约 110px：结论分布收紧间距，三枚色点各自不拆行 */
+    .rec-kpi-mix {
+        gap: 2px 4px;
+    }
+    .rec-kpi-part {
+        gap: 3px;
+    }
+    .rec-kpi-mix .logs-dot {
+        width: 6px;
+        height: 6px;
+    }
+
+    /* 手机上块本身不再卡片化：内部每行已是卡片，双层边框又重又挤；
+       块说明与筛选说明也省掉，把首屏留给数据 */
+    .rec-block {
+        margin-bottom: 18px;
+        padding: 0;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+    }
+    .rec-block-note {
+        display: none;
+    }
+    .rec-result-bar .rec-hint {
+        display: none;
     }
 
     /* 书名检索在手机档占满标题行下方，16px 字号避免 iOS 聚焦时放大整页 */
@@ -485,7 +560,9 @@
     .rec-table .rec-time {
         font-size: 12px;
         opacity: 0.7;
-        white-space: nowrap;
+        /* 卡片第一列允许折行：保持 nowrap 时第一列会被网格压到 83px，
+           文字溢出压住第二列的结论徽章（章节跨度长时必现） */
+        white-space: normal;
     }
     .rec-table .rec-book {
         max-width: none;
@@ -564,13 +641,16 @@
         display: block;
     }
 
-    /* 判定结果：时间/结论/概率 → 书名 → 引擎/章节/类型 → 理由 */
+    /* 判定结果：时间/结论/概率 → 书名 → 引擎 → 章节/类型 → 理由。
+       引擎独占一行是刻意的：它的 max-content（长型号英文）会参与第一列的
+       minmax(max-content, …) 计算，挤在第三行第一列会把 320px 撑出横向滚动 */
     .rec-table-result tr {
-        grid-template-columns: minmax(0, 1fr) auto auto;
+        grid-template-columns: minmax(max-content, 1fr) auto auto;
         grid-template-areas:
             "time flag score"
             "title title title"
-            "engine chapter type"
+            "engine engine engine"
+            "chapter chapter type"
             "reason reason reason";
     }
     .rec-table-result td:nth-child(1) { grid-area: time; }
@@ -593,7 +673,7 @@
         align-self: center;
     }
     .rec-table-result td:nth-child(5) {
-        color: var(--accent);
+        color: var(--accent-text);
         font-size: 13px;
         font-weight: 700;
     }

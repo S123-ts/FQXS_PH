@@ -39,15 +39,22 @@ function flagMeta(flag, kind) {
     return { label: '未完成', cls: 'human' };
 }
 
-/* 取样档位翻成人话：free/member + 策略 + 实际章号 */
+/* 取样档位翻成人话：数据源前缀 + 策略 + 实际章号 */
 function sampleLabel(row) {
     const mode = String(row.sampleMode || '');
     if (!mode) return '';
     const [channel, strategy] = mode.split(':');
     const strategyName = {
-        mid_recent: '中段+最新', head: '前N章', mid: '中段', recent: '最新', random: '随机'
+        mid_recent: '中段+最新', head: '前N章', mid: '中段', recent: '最新',
+        // random2x5 是落库名（两段各 5 章），不能把内部档位名直接甩给用户
+        random: '随机', random2x5: '随机 2×5'
     }[strategy] || strategy || '';
-    const channelName = channel === 'member' ? '会员全文' : '免费区';
+    /* 三个数据源语义相反：official 是官网前 10 章（免费、落库），
+       third 是第三方会员通道（拿全文），member 是历史档。一律写「免费区」
+       会把 third 说反，排查取样问题时被文案带偏。未知前缀原样显示 */
+    const channelName = {
+        official: '官网免费区', third: '第三方会员通道', member: '会员全文'
+    }[channel] || channel;
     const span = row.sampleSpan ? `第${row.sampleSpan}章` : '';
     return [channelName, strategyName, span].filter(Boolean).join(' · ');
 }
@@ -296,8 +303,9 @@ export function trapFocusInAiDetail(e) {
     const mask = document.getElementById('aiDetailMask');
     const dialog = mask && mask.querySelector('.modal');
     if (!dialog) return;
+    // summary 也要收：卡内「校验记录」的折叠头可聚焦，漏了它 Tab 会绕过它提前回绕
     const focusables = /** @type {HTMLElement[]} */ (
-        Array.from(dialog.querySelectorAll('button, a[href], input')))
+        Array.from(dialog.querySelectorAll('button, a[href], input, summary')))
         .filter(el => !/** @type {HTMLButtonElement} */ (el).disabled);
     if (focusables.length === 0) return;
     const first = focusables[0];

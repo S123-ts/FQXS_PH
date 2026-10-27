@@ -8,7 +8,8 @@
 
 import {
     fetchAiKeysApi, saveAiKeyApi, saveAiModelApi, fetchAiQuotaApi, fetchAiUsageApi,
-    testAiEngineApi, saveAiEngineApi, deleteAiEngineApi, discoverAiModelsApi
+    testAiEngineApi, saveAiEngineApi, deleteAiEngineApi, discoverAiModelsApi,
+    saveAiEngineEnabledApi
 } from './api.js';
 import { escapeText, escapeAttr, showToast } from './render.js';
 import { loadAiStatus } from './ai_actions.js';
@@ -231,10 +232,15 @@ function renderPanel(host, keys) {
         // 未配置的引擎默认收起：面板一打开就先看到"已经配好的"，需要配置的再点开
         return `
             <div class="key-row${collapsed ? ' collapsed' : ''}" data-engine="${escapeAttr(id)}"
-                 data-configured="${configured ? '1' : '0'}">
+                 data-configured="${configured ? '1' : '0'}" data-enabled="${state.enabled ? '1' : '0'}">
                 <div class="key-head">
                     <span class="key-name">${escapeText(name)}${state.builtin ? '' : ' · 自定义'}</span>
                     <span class="${statusClass}">${statusText}</span>
+                    <label class="key-enable" title="关掉后不参与判定，Key 保留">
+                        <input type="checkbox" class="key-enable-check" data-action="ai-engine-toggle"
+                               data-engine="${escapeAttr(id)}"${state.enabled ? ' checked' : ''}>
+                        <span>启用</span>
+                    </label>
                     ${(!configured || compact) ? `<button type="button" class="key-expand" data-action="ai-key-expand"
                             data-engine="${escapeAttr(id)}">${collapsed ? (configured ? '编辑' : '配置') : '收起'}</button>` : ''}
                     <button type="button" class="key-expand" data-action="ai-engine-test"
@@ -517,7 +523,7 @@ function renderModelRow(engineId, currentModel, modelList, modelPool, modelOptio
         <div class="key-model-row">
             <span class="key-model-label">模型</span>
             <div class="key-model-chips">${chips}</div>
-            <span class="key-model-hint">勾选多个时每次判定随机取一个</span>
+            <span class="key-model-hint">勾选多个时每次判定随机取一个；全不勾则固定用当前型号</span>
             <button type="button" class="link-btn" data-action="ai-engine-discover"
                     data-engine="${escapeAttr(engineId)}">拉取端点型号</button>
             ${hiddenCount > 0 ? `<button type="button" class="link-btn" data-action="ai-model-expand">展开全部 ${options.length} 个</button>` : ''}
@@ -526,6 +532,28 @@ function renderModelRow(engineId, currentModel, modelList, modelPool, modelOptio
 }
 
 /* 展开被折叠的型号芯片（只影响当前面板，不改数据） */
+/* 启用开关：只改 enabled，不动 Key 与型号；停用后引擎仍保留 Key，
+   只是不再进判定下拉与随机池（后端 availableEngines 按 enabled 过滤） */
+export async function toggleEngine(engine, checkbox) {
+    if (!engine) return;
+    const next = !!(checkbox && checkbox.checked);
+    if (checkbox) checkbox.disabled = true;
+    try {
+        const body = await saveAiEngineEnabledApi(engine, next);
+        const row = /** @type {HTMLElement | null} */ (
+            document.querySelector(`#aiKeyBody .key-row[data-engine="${CSS.escape(engine)}"]`));
+        if (row) row.dataset.enabled = next ? '1' : '0';
+        showToast((body && body.message) || (next ? '已启用' : '已停用'), 'success', 3000);
+        await loadAiStatus();
+    } catch (err) {
+        if (checkbox) checkbox.checked = !next;
+        console.error('切换启用状态失败:', err);
+        showToast('切换启用状态失败: ' + (err.message || err), 'error', 6000);
+    } finally {
+        if (checkbox) checkbox.disabled = false;
+    }
+}
+
 export function expandModelList(btn) {
     const row = btn && btn.closest('.key-model-row');
     if (!row) return;
@@ -535,19 +563,14 @@ export function expandModelList(btn) {
     btn.remove();
 }
 
-/* 型号勾选变化即保存：多选时后端存型号池，判定时随机取一个 */
+/* 型号勾选变化即保存：多选时后端存型号池，判定时随机取一个；
+   全不勾也合法（后端清空池后回退主型号），所以这里不再拦「至少保留一个」 */
 export async function onModelPoolChange(engine, checkbox) {
     const host = document.getElementById('aiKeyBody');
     if (!engine || !host) return;
     const checks = /** @type {HTMLInputElement[]} */ (
         [...host.querySelectorAll(`.key-model-check[data-engine="${CSS.escape(engine)}"]`)]);
     const models = checks.filter(check => check.checked).map(check => check.value);
-    if (models.length === 0) {
-        // 只回滚这一枚勾选，不整面板重画：重画会清掉用户还没保存的 Key
-        if (checkbox) checkbox.checked = true;
-        showToast('至少保留一个型号', 'warn', 4000);
-        return;
-    }
     try {
         const body = await saveAiModelApi(engine, null, models);
         showToast((body && body.message) || '型号已更新', 'success', 4000);

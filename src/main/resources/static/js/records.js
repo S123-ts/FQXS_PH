@@ -29,10 +29,20 @@ const REFRESH_MS = 3000;
 let loading = false;
 let timer = 0;
 
-/* 判定结果的前端检索状态：关键词由用户掌握，3 秒自动刷新只换数据，不能把它冲掉。 */
+/* 判定结果的前端检索状态：关键词与结论筛选都由用户掌握，
+   3 秒自动刷新只换数据，不能把它们冲掉。 */
 let latestResults = [];
 let resultQuery = '';
+let resultFlag = '';
 let resultsLoaded = false;
+
+/** 结论 chip 的 data-flag → 空态文案里的人类可读名 */
+const FLAG_FILTER_LABEL = /** @type {Record<string, string>} */ ({
+    '2': 'AI',
+    '3': '疑似',
+    '1': '非 AI',
+    failed: '失败'
+});
 
 function byId(id) {
     return /** @type {HTMLElement} */ (document.getElementById(id));
@@ -125,8 +135,14 @@ function spanText(span) {
 function renderRunning(running) {
     const box = byId('recRunning');
     byId('recRunningCount').textContent = String(running.length);
+    const kpiRunning = byId('kpiRunning');
+    kpiRunning.textContent = String(running.length);
+    kpiRunning.closest('.rec-kpi-item')?.classList.toggle('is-live', running.length > 0);
+    box.className = 'rec-running';
     box.textContent = '';
     if (!running.length) {
+        // 空态收成一行：没有在飞动作时不该占掉半屏
+        box.classList.add('is-empty');
         const p = document.createElement('p');
         p.className = 'rec-empty';
         p.textContent = '当前没有进行中的审查';
@@ -204,15 +220,42 @@ function renderChapters(chapters) {
     });
 }
 
+/** 结论筛选：失败行按 kind 单独归一类，其余按 aiFlag 对齐 1/2/3 徽章。 */
+function matchesFlag(item) {
+    if (!resultFlag) return true;
+    if (resultFlag === 'failed') return item.kind === 'failed';
+    return item.kind !== 'failed' && String(item.aiFlag) === resultFlag;
+}
+
+/** chips 上的计数始终针对整批数据，筛选后仍能看到其他结论各有多少条。 */
+function updateChipCounts() {
+    const counts = { all: latestResults.length, '1': 0, '2': 0, '3': 0, failed: 0 };
+    latestResults.forEach(item => {
+        if (item.kind === 'failed') {
+            counts.failed += 1;
+            return;
+        }
+        const key = String(item.aiFlag);
+        if (counts[key] !== undefined) {
+            counts[key] += 1;
+        }
+    });
+    byId('resultFlagChips').querySelectorAll('[data-chip-count]').forEach(el => {
+        const key = /** @type {HTMLElement} */ (el).dataset.chipCount || '';
+        el.textContent = String(counts[key] || 0);
+    });
+}
+
 function renderResults(results) {
     latestResults = Array.isArray(results) ? results : [];
     resultsLoaded = true;
+    updateChipCounts();
     const tbody = byId('recResultRows');
     const query = resultQuery.trim().toLowerCase();
-    const visible = query
-        ? latestResults.filter(item => String(item.title || '').toLowerCase().includes(query))
-        : latestResults;
-    byId('recResultCount').textContent = query
+    const visible = latestResults
+        .filter(matchesFlag)
+        .filter(item => !query || String(item.title || '').toLowerCase().includes(query));
+    byId('recResultCount').textContent = (query || resultFlag)
         ? `${visible.length} / ${latestResults.length}`
         : String(latestResults.length);
     if (!latestResults.length) {
@@ -220,7 +263,14 @@ function renderResults(results) {
         return;
     }
     if (!visible.length) {
-        emptyRow(tbody, 8, `没有书名包含「${resultQuery.trim()}」的判定结果`);
+        const flagLabel = FLAG_FILTER_LABEL[resultFlag] || '';
+        if (query) {
+            emptyRow(tbody, 8, flagLabel
+                ? `没有书名包含「${resultQuery.trim()}」且符合「${flagLabel}」筛选的判定结果`
+                : `没有书名包含「${resultQuery.trim()}」的判定结果`);
+        } else {
+            emptyRow(tbody, 8, `当前结论筛选（${flagLabel}）没有记录`);
+        }
         return;
     }
     tbody.textContent = '';
@@ -242,10 +292,21 @@ function renderResults(results) {
         const flag = FLAG[Number(item.aiFlag)];
         const failed = item.kind === 'failed';
         const flagTd = document.createElement('td');
-        const badge = document.createElement('span');
-        badge.className = `rec-flag ${failed ? 'rec-flag-failed' : (flag ? flag.cls : 'rec-flag-progress')}`;
-        // 失败行 aiFlag 也是 0，但它不是「这一章没命中」，是「这轮没判成」：文案必须分开
-        badge.textContent = failed ? '失败' : (flag ? flag.label : '未命中');
+        let badge;
+        if (failed) {
+            /* 失败行 aiFlag 也是 0，但它不是「这一章没命中」，是「这轮没判成」：文案必须分开。
+               徽标本轮原因与上游片段在失败日志页，做成链接让人能顺着查下去 */
+            const link = document.createElement('a');
+            link.className = 'rec-flag rec-flag-failed';
+            link.href = '/faults';
+            link.title = '到失败日志页看原因、上游返回片段与引擎停用状态';
+            link.textContent = '失败';
+            badge = link;
+        } else {
+            badge = document.createElement('span');
+            badge.className = `rec-flag ${flag ? flag.cls : 'rec-flag-progress'}`;
+            badge.textContent = flag ? flag.label : '未命中';
+        }
         flagTd.appendChild(badge);
         tr.appendChild(flagTd);
 
@@ -281,16 +342,40 @@ function renderKpi(payload) {
     const chapters = payload.chapters || [];
     const chapterCount = chapters.reduce((sum, item) => sum + (Number(item.chapters) || 0), 0);
     byId('kpiFetch').textContent = String(chapters.length);
-    byId('kpiFetchSub').textContent = `本书 / ${chapterCount} 章`;
-
-    byId('kpiRunning').textContent = String((payload.running || []).length);
+    byId('kpiFetchSub').textContent = `共 ${chapterCount} 章正文`;
 
     const tally = payload.tally || {};
     const ai = Number(tally['2']) || 0;
     const suspect = Number(tally['3']) || 0;
     const human = Number(tally['1']) || 0;
     byId('kpiResults').textContent = String(ai + suspect + human);
-    byId('kpiResultsSub').textContent = `AI ${ai} / 疑似 ${suspect} / 非 AI ${human}`;
+
+    // 三个结论各自带色点：与下方 chips、徽章同一套语义，不必逐字读数字
+    const mix = byId('kpiResultsSub');
+    mix.textContent = '';
+    [
+        { label: 'AI', value: ai, cls: 'logs-dot-ai' },
+        { label: '疑似', value: suspect, cls: 'logs-dot-suspect' },
+        { label: '非 AI', value: human, cls: 'logs-dot-human' }
+    ].forEach((part, index) => {
+        if (index) {
+            const sep = document.createElement('span');
+            sep.className = 'rec-kpi-sep';
+            sep.textContent = '/';
+            mix.appendChild(sep);
+        }
+        const dot = document.createElement('span');
+        dot.className = `logs-dot ${part.cls}`;
+        dot.setAttribute('aria-hidden', 'true');
+        const text = document.createElement('span');
+        text.textContent = `${part.label} ${part.value}`;
+        // 点 + 文案包成不可拆的一枚：手机窄卡里否则会把「AI / 5」拆到两行
+        const unit = document.createElement('span');
+        unit.className = 'rec-kpi-part';
+        unit.appendChild(dot);
+        unit.appendChild(text);
+        mix.appendChild(unit);
+    });
 }
 
 /* ---------- 拉数据 ---------- */
@@ -374,6 +459,22 @@ resultSearch.addEventListener('keydown', (e) => {
         if (resultsLoaded) {
             renderResults(latestResults);
         }
+    }
+});
+
+/* 结论 chips：与书名检索是两套条件，可叠加；切换后立即重绘，不等下一轮刷新 */
+byId('resultFlagChips').addEventListener('click', (e) => {
+    const target = /** @type {HTMLElement} */ (e.target);
+    const chip = /** @type {HTMLElement|null} */ (target.closest('.logs-chip'));
+    if (!chip) return;
+    resultFlag = chip.dataset.flag || '';
+    byId('resultFlagChips').querySelectorAll('.logs-chip').forEach(el => {
+        const active = el === chip;
+        el.classList.toggle('is-active', active);
+        el.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    if (resultsLoaded) {
+        renderResults(latestResults);
     }
 });
 

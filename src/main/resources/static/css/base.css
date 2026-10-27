@@ -26,9 +26,11 @@
     --text-1: #212733;
     --text-2: #4c5666;
     --text-3: #6b7484;        /* 13px 正文色：对白底约 4.6:1，满足 WCAG AA */
-    --accent: #ff3d00;        /* 番茄红，主操作 */
-    --accent-hover: #e53600;
-    --accent-text: #c93a00;   /* 主色当 14px 正文用：对白底约 5.0:1（accent-hover 只有 4.32） */
+    --accent: #ff3d00;        /* 番茄红，装饰色：边框/焦点圈/进度/勾选，非文字 */
+    --accent-hover: #e53600;  /* 主色悬停档，仅作过渡用，不再承担文字/白字底 */
+    --accent-text: #b32b00;   /* 主色当文字：对白底 6.4、淡橙底 5.8（AA 需 4.5） */
+    --accent-strong: #b33000; /* 需要白字的填充底：对白字 6.3（品牌橙只有 3.55） */
+    --accent-strong-hover: #9c2a00;
     --accent-soft: #fff0ea;   /* 主色淡底，用于悬停/色块 */
     --accent-soft-2: #ffe4da; /* 主色淡底的悬停档 */
     --info: #2563eb;
@@ -94,6 +96,8 @@
         --accent: #ff5a2b;
         --accent-hover: #ff7346;
         --accent-text: #ff8a63;
+        --accent-strong: #c2410c;
+        --accent-strong-hover: #a8380a;
         --accent-soft: #2b1a13;
         --accent-soft-2: #3a2118;
         --info: #6ea8fe;
@@ -152,7 +156,7 @@ img {
 
 ::selection {
     background: var(--accent-soft);
-    color: var(--accent-hover);
+    color: var(--accent-text);
 }
 
 /* 复选框用主题色融入看板（筛选/多选下拉共用） */

@@ -63,8 +63,8 @@ let aiPageAbort = null;
 // 不同书可同时重跑（与逐章校验同一套并行纪律）；防的是手滑连点把同一本书判两遍
 const aiRerunInFlight = new Set();
 
-// 未配 Key 的统一引导文案：初筛与校验选中用同一句，行为一致
-const NO_ENGINE_HINT = '未配置免费引擎密钥：点右上角「API 密钥」配置任意一个免费引擎，保存即生效';
+// 没有可用引擎的统一引导文案：初筛与校验选中用同一句，行为一致（填了 Key 但停用也算不可用）
+const NO_ENGINE_HINT = '没有可用的免费引擎：点右上角「API 密钥」填 Key 并保持「启用」，保存即生效';
 
 // 免费引擎的选择框文案：全名进 title，短名进选项
 const ENGINE_LABELS = {

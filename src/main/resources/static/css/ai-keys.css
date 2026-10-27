@@ -49,7 +49,7 @@
 }
 .key-expand:hover {
     border-color: var(--accent);
-    color: var(--accent);
+    color: var(--accent-text);
 }
 /* 删除确认态：与行内「拉黑」同语义，第二次点击才真正删除 */
 .key-expand.confirm,
@@ -89,10 +89,34 @@
     color: #1a4f9c;
 }
 
+/* 启用开关：填了 Key 也可以先关掉，只影响是否参与判定 */
+.key-enable {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+    cursor: pointer;
+    user-select: none;
+}
+.key-enable-check {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--accent-strong);
+    cursor: pointer;
+}
+.key-enable-check:disabled {
+    cursor: wait;
+}
+.key-row[data-enabled="0"] .key-name {
+    color: var(--text-3);
+}
+
 .key-link {
     margin-left: auto;
     font-size: var(--fs-xs);
-    color: var(--accent);
+    color: var(--accent-text);
     text-decoration: none;
     white-space: nowrap;
 }
@@ -192,7 +216,7 @@
 }
 .quota-link {
     margin-left: auto;
-    color: var(--accent);
+    color: var(--accent-text);
     text-decoration: none;
     white-space: nowrap;
 }

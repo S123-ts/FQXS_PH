@@ -244,6 +244,15 @@ export function saveAiEngineApi(payload, signal) {
     });
 }
 
+/* 只切换引擎启用状态：填了 Key 也可以先不启用，不携带端点与型号 */
+export function saveAiEngineEnabledApi(id, enabled, signal) {
+    return postJson(`${AI_API_BASE}/engines/enabled`, {
+        signal,
+        headers: {'Content-Type': 'application/json;charset=UTF-8'},
+        body: JSON.stringify({id, enabled: !!enabled})
+    });
+}
+
 /* 删除一个自定义引擎；内置引擎只能停用 */
 /* 从端点拉取型号清单：只扩充候选，不改当前型号池 */
 export function discoverAiModelsApi(id, signal) {

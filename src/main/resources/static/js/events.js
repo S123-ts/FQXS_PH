@@ -25,7 +25,7 @@ import {
 import {
     openAiKeyPanel, closeAiKeyPanel, isAiKeyPanelOpen, trapFocusInAiKeyPanel,
     saveAiKeys, toggleClearKey, onModelPoolChange, toggleKeyRow,
-    testEngine, removeEngine, addEngine, discoverModels, expandModelList
+    testEngine, removeEngine, addEngine, discoverModels, expandModelList, toggleEngine
 } from './ai_config.js';
 import {
     openAiDetail, closeAiDetail, isAiDetailOpen, trapFocusInAiDetail
@@ -212,6 +212,9 @@ export function bindEvents() {
                     break;
                 case 'ai-engine-test':
                     testEngine(actionBtn.dataset.engine, actionBtn);
+                    break;
+                case 'ai-engine-toggle':
+                    toggleEngine(actionBtn.dataset.engine, actionBtn);
                     break;
                 case 'ai-engine-discover':
                     discoverModels(actionBtn.dataset.engine, actionBtn);
