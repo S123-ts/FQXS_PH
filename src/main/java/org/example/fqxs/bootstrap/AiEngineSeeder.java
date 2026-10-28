@@ -32,8 +32,9 @@ public class AiEngineSeeder implements ApplicationRunner {
     // ERNIE-Speed 系列已不在千帆在线服务清单，出厂清单只列可用型号
     private static final String QIANFAN_MODELS =
             "ernie-4.5-turbo-32k,ernie-4.5-turbo-128k,deepseek-v4-flash-0731,glm-5.3-flash";
+    // GLM-4-9B 在硅基流动须带 THUDM/ 前缀，裸名会被上游 400 拒绝（见 FreeModelCatalog 同名说明）
     private static final String QWEN_MODELS =
-            "Qwen/Qwen2.5-7B-Instruct,Qwen/Qwen3-8B,Qwen/Qwen2.5-14B-Instruct,GLM-4-9B-0414";
+            "Qwen/Qwen2.5-7B-Instruct,Qwen/Qwen3-8B,Qwen/Qwen2.5-14B-Instruct,THUDM/GLM-4-9B-0414";
 
     private final AiEngineRepository engineRepository;
     private final NovelAiVerdictRepository verdictRepository;

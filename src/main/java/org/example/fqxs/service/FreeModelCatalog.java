@@ -16,8 +16,10 @@ public final class FreeModelCatalog {
     private static final Map<String, Set<String>> FREE_MODELS = Map.of(
             AiDetectConfig.ENGINE_GLM, Set.of(
                     "glm-4-flash", "glm-4-flash-250414", "glm-4.7-flash", "glm-4.5-flash"),
+            // 硅基流动的清单里 GLM-4-9B 带 THUDM/ 组织前缀，写成裸名 "GLM-4-9B-0414"
+            // 会被上游以 400 "Model does not exist" 拒掉：标了免费却调不通，等于诱导用户勾一个坏型号
             AiDetectConfig.ENGINE_QWEN, Set.of(
-                    "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen3-8B", "GLM-4-9B-0414"));
+                    "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen3-8B", "THUDM/GLM-4-9B-0414"));
 
     private FreeModelCatalog() {
     }
