@@ -194,4 +194,67 @@ class AiEngineRegistryTest {
         assertThat(saved.getModel()).isEqualTo("glm-4.7-flash");
         assertThat(saved.isEnabled()).isFalse();
     }
+
+    /** 欠费型号只取消勾选：候选清单要留着，用户充值后才能在面板上重新勾回来。 */
+    @Test
+    void quotaModelIsUncheckedButStaysInCatalog() {
+        AiEngine record = engine("glm-4-flash", "glm-4-flash,glm-4.7-flash,glm-4.5-flash");
+        when(repository.findById("glm-4-flash")).thenReturn(Optional.of(record));
+        when(repository.save(any(AiEngine.class))).thenAnswer(call -> call.getArgument(0));
+
+        assertThat(registry.dropQuotaModel("glm-4-flash", "glm-4.7-flash")).isTrue();
+
+        assertThat(record.getModelPool()).isEqualTo("glm-4-flash,glm-4.5-flash");
+        assertThat(record.getModelsCsv()).contains("glm-4.7-flash");
+        assertThat(record.isEnabled()).isTrue();
+    }
+
+    /** 摘掉主型号后主型号要跟着前移，否则 modelsOf 的第一个仍是脏值。 */
+    @Test
+    void droppingPrimaryPromotesTheNextCheckedModel() {
+        AiEngine record = engine("glm-4.7-flash", "glm-4.7-flash,glm-4-flash");
+        when(repository.findById("glm-4-flash")).thenReturn(Optional.of(record));
+        when(repository.save(any(AiEngine.class))).thenAnswer(call -> call.getArgument(0));
+
+        assertThat(registry.dropQuotaModel("glm-4-flash", "glm-4.7-flash")).isTrue();
+
+        assertThat(record.getModel()).isEqualTo("glm-4-flash");
+        assertThat(registry.modelsOf("glm-4-flash")).containsExactly("glm-4-flash");
+    }
+
+    /** 最后一个型号也欠费时没有可退的型号了：停用引擎，而不是留一个必定失败的引擎继续撞。 */
+    @Test
+    void droppingLastModelDisablesEngine() {
+        AiEngine record = engine("glm-4.7-flash", "glm-4.7-flash");
+        when(repository.findById("glm-4-flash")).thenReturn(Optional.of(record));
+        when(repository.save(any(AiEngine.class))).thenAnswer(call -> call.getArgument(0));
+
+        assertThat(registry.dropQuotaModel("glm-4-flash", "glm-4.7-flash")).isTrue();
+
+        assertThat(record.getModelPool()).isEmpty();
+        assertThat(record.isEnabled()).isFalse();
+    }
+
+    /** 池空 = 只用主型号，主型号欠费同样没有退路。 */
+    @Test
+    void quotaPrimaryInSingleModelModeDisablesEngine() {
+        AiEngine record = engine("glm-4.7-flash", null);
+        when(repository.findById("glm-4-flash")).thenReturn(Optional.of(record));
+        when(repository.save(any(AiEngine.class))).thenAnswer(call -> call.getArgument(0));
+
+        assertThat(registry.dropQuotaModel("glm-4-flash", "glm-4.7-flash")).isTrue();
+
+        assertThat(record.isEnabled()).isFalse();
+    }
+
+    /** 型号已经不在生效集里（例如连着报两次欠费）就不要再写库。 */
+    @Test
+    void droppingModelNotInPoolIsNoOp() {
+        AiEngine record = engine("glm-4-flash", "glm-4-flash");
+        when(repository.findById("glm-4-flash")).thenReturn(Optional.of(record));
+
+        assertThat(registry.dropQuotaModel("glm-4-flash", "glm-4.7-flash")).isFalse();
+
+        verify(repository, never()).save(any(AiEngine.class));
+    }
 }

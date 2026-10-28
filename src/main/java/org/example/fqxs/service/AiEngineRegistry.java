@@ -212,6 +212,56 @@ public class AiEngineRegistry {
     }
 
     /**
+     * 把一个「余额不足 / 欠费」的型号从勾选集里摘掉，等价于面板上取消勾选。
+     *
+     * <p>与 {@link #updateModels} 的差别：只改勾选集，<b>不动候选清单 {@code models_csv}</b>，
+     * 用户充值后还能在面板上重新勾回来；判定调用只看勾选集，所以摘掉即立刻停止撞它。</p>
+     *
+     * <p>池空时模型语义是「只用主型号」，此时主型号就是唯一在用的成员，摘掉它等于没有型号
+     * 可用：此时把引擎停用，而不是留下一个必定失败的引擎继续消耗重试与配额。</p>
+     *
+     * @param engine 引擎标识
+     * @param model  欠费的型号
+     * @return true 表示确实摘掉了（型号原本在生效集里），false 表示无需处理
+     */
+    public boolean dropQuotaModel(String engine, String model) {
+        AiEngine record = require(engine);
+        if (!record.isOpenAiCompatible()) {
+            return false;
+        }
+        String target = model == null ? "" : model.trim();
+        if (target.isEmpty()) {
+            return false;
+        }
+        // 生效集 = 型号池；池空退化为单型号时，主型号算唯一成员
+        List<String> active = splitModels(record.getModelPool());
+        if (active.isEmpty()) {
+            String primary = record.getModel() == null ? "" : record.getModel().trim();
+            if (primary.isEmpty()) {
+                return false;
+            }
+            active = new ArrayList<>(List.of(primary));
+        }
+        if (!active.contains(target)) {
+            return false;
+        }
+        List<String> remaining = new ArrayList<>(active);
+        remaining.remove(target);
+        if (remaining.isEmpty()) {
+            record.setModelPool("");
+            record.setEnabled(false);
+            repository.save(record);
+            log.warn("型号欠费且已无可用型号，停用引擎: engine={}, model={}", engine, target);
+            return true;
+        }
+        record.setModelPool(String.join(",", remaining));
+        record.setModel(remaining.get(0));
+        repository.save(record);
+        log.warn("型号欠费已取消勾选: engine={}, model={}, 剩余={}", engine, target, remaining);
+        return true;
+    }
+
+    /**
      * 只切换启用状态，不动其它字段。
      *
      * <p>与 {@link #save} 分开是为了让「填了 Key 但先不用」成为一等操作：save 的请求体要求

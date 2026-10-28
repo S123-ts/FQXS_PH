@@ -165,6 +165,10 @@ ai:
     # 失败留证与自动停用：同一引擎连续 N 次判定失败就停用 M 小时（到期自动恢复，重启不丢）
     fault-suspend-threshold: 3
     fault-suspend-hours: ${FAULT_SUSPEND_HOURS:1}
+    # 上游报「余额不足 / 欠费」时自动把该型号从型号池取消勾选（可关）。
+    # 只认余额/计费特征（智谱 1113、insufficient_quota、HTTP 402）；
+    # 限流类 429（访问量过大、每日上限）会自行恢复，不摘。候选清单保留，充值后可重新勾选。
+    drop-quota-models: ${DROP_QUOTA_MODELS:true}
     # 后台 AI 逐章校验：把所有书的前 N 章（verify-max-chapters）用每个可用引擎各跑一遍。
     # 只跑同模型的「家族代表」型号（ernie-4.5-turbo-32k 与 -128k 这类包装差异只留一个，省额度换产量）。
     # 节拍按引擎算：ai-verify-backfill-per-hour=6 即每个引擎 10 分钟推进一本，

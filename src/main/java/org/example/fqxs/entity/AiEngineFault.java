@@ -42,7 +42,7 @@ public class AiEngineFault {
     @Column(length = 80)
     private String model;
 
-    /** 失败分类：auth / rate / server / network / empty / parse / unknown。 */
+    /** 失败分类：auth / quota / rate / server / network / empty / parse / unknown。 */
     @Column(nullable = false, length = 20)
     private String kind;
 

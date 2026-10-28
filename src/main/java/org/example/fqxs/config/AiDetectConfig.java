@@ -114,6 +114,16 @@ public class AiDetectConfig {
     /** 自动停用时长（小时）：报错到阈值就歇这么久再试，免费渠道的限流通常一小时内恢复。 */
     private int faultSuspendHours = 1;
 
+    /**
+     * 上游明确报「余额不足 / 欠费」时，是否自动把该型号从型号池里取消勾选。
+     *
+     * <p>与限流的区别在这类错误重试多少次都不会好转（智谱 1113 余额不足、openai
+     * {@code insufficient_quota}、HTTP 402），留在池里只会把整个引擎撞到停用；而限流类 429
+     * （访问量过大、每日上限）会自行恢复，不能一并摘掉，所以只认余额/计费特征。
+     * 只动勾选集、不动候选清单：充值后可以在面板上重新勾回来。</p>
+     */
+    private boolean dropQuotaModels = true;
+
     /** 单本取样最多请求的章节数（策略章节 + 回退扫描合计），防止一次判定打太多上游请求。 */
     private int sampleRequestLimit = 12;
 

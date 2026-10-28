@@ -39,6 +39,9 @@ class AiFaultGuardTest {
     @Mock
     private AiEngineRepository engineRepository;
 
+    @Mock
+    private AiEngineRegistry engineRegistry;
+
     private AiDetectConfig config;
 
     private AiFaultGuard guard;
@@ -46,7 +49,7 @@ class AiFaultGuardTest {
     @BeforeEach
     void setUp() {
         config = new AiDetectConfig();
-        guard = new AiFaultGuard(faultRepository, engineRepository, config);
+        guard = new AiFaultGuard(faultRepository, engineRepository, config, engineRegistry);
         lenient().when(faultRepository.save(any(AiEngineFault.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(engineRepository.save(any(AiEngine.class))).thenAnswer(inv -> inv.getArgument(0));
     }
@@ -190,5 +193,94 @@ class AiFaultGuardTest {
         assertThat(AiFaultGuard.classify(0, "请求失败: read timed out")).isEqualTo("network");
         assertThat(AiFaultGuard.classify(0, "Connection reset")).isEqualTo("network");
         assertThat(AiFaultGuard.classify(0, "莫名其妙的失败")).isEqualTo("unknown");
+    }
+
+    /** 欠费与限流都是 429，但处置完全不同：前者摘型号，后者只歇一会儿，绝不能混为一谈。 */
+    @Test
+    void distinguishesOutOfBalanceFromPlainRateLimit() {
+        assertThat(AiFaultGuard.isOutOfQuota(429, "免费判定(glm-4-flash)失败: 上游返回 429",
+                "{\"error\":{\"code\":\"1113\",\"message\":\"余额不足或无可用资源包,请充值。\"}}")).isTrue();
+        assertThat(AiFaultGuard.isOutOfQuota(429, "上游返回 429",
+                "{\"error\":{\"code\":\"insufficient_quota\",\"message\":\"You exceeded your current quota, "
+                        + "please check your plan and billing details.\"}}")).isTrue();
+        assertThat(AiFaultGuard.isOutOfQuota(402, "上游返回 402", null)).isTrue();
+        assertThat(AiFaultGuard.isOutOfQuota(429, "上游返回 429",
+                "{\"error\":{\"code\":\"1305\",\"message\":\"该模型当前访问量过大，请您稍后再试\"}}")).isFalse();
+        assertThat(AiFaultGuard.isOutOfQuota(429, "上游返回 429",
+                "{\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"daily request limit reached\"}}"))
+                .isFalse();
+        assertThat(AiFaultGuard.isOutOfQuota(0, null, null)).isFalse();
+    }
+
+    /** 欠费不是抖动：摘掉型号就够，不该顺手把整个引擎停用，也不该继续累计失败次数。 */
+    @Test
+    void outOfBalanceModelIsUncheckedInsteadOfSuspendingEngine() {
+        AiEngine record = engine(2);
+        when(engineRegistry.dropQuotaModel("glm-4-flash", "glm-4.7-flash")).thenReturn(true);
+
+        guard.recordFailure("glm-4-flash", "glm-4.7-flash",
+                CrawlException.upstream("免费判定(glm-4-flash)失败: 上游返回 429", 429,
+                        "{\"error\":{\"code\":\"1113\",\"message\":\"余额不足或无可用资源包,请充值。\"}}"), "b7");
+
+        verify(engineRegistry).dropQuotaModel("glm-4-flash", "glm-4.7-flash");
+        assertThat(record.getConsecutiveFailures()).isEqualTo(2);
+        assertThat(record.getDisableUntil()).isNull();
+        assertThat(record.isSuspended()).isFalse();
+
+        ArgumentCaptor<AiEngineFault> captor = ArgumentCaptor.forClass(AiEngineFault.class);
+        verify(faultRepository).save(captor.capture());
+        assertThat(captor.getValue().getKind()).isEqualTo("quota");
+    }
+
+    /** 访问量过大这类 429 会自行恢复，把型号摘掉等于误伤。 */
+    @Test
+    void plainRateLimitKeepsModelChecked() {
+        when(engineRepository.findById("glm-4-flash")).thenReturn(Optional.of(engine(0)));
+
+        guard.recordFailure("glm-4-flash", "glm-4.7-flash",
+                CrawlException.upstream("免费判定(glm-4-flash)失败: 上游返回 429", 429,
+                        "{\"error\":{\"code\":\"1305\",\"message\":\"该模型当前访问量过大，请您稍后再试\"}}"), null);
+
+        verify(engineRegistry, never()).dropQuotaModel(anyString(), anyString());
+    }
+
+    /** 开关关掉后回落到原来的停用逻辑，行为与改造前一致。 */
+    @Test
+    void quotaDropCanBeDisabledByConfig() {
+        config.setDropQuotaModels(false);
+        AiEngine record = engine(2);
+        when(engineRepository.findById("glm-4-flash")).thenReturn(Optional.of(record));
+
+        guard.recordFailure("glm-4-flash", "glm-4.7-flash",
+                CrawlException.upstream("上游返回 429", 429, "余额不足或无可用资源包,请充值。"), null);
+
+        verify(engineRegistry, never()).dropQuotaModel(anyString(), anyString());
+        assertThat(record.getConsecutiveFailures()).isEqualTo(3);
+        assertThat(record.getDisableUntil()).isNotNull();
+    }
+
+    /** 摘勾本身写库失败也不能把判定链路带崩，此时按普通失败计数。 */
+    @Test
+    void dropFailureFallsBackToNormalCounting() {
+        AiEngine record = engine(2);
+        when(engineRepository.findById("glm-4-flash")).thenReturn(Optional.of(record));
+        when(engineRegistry.dropQuotaModel(anyString(), anyString()))
+                .thenThrow(new RuntimeException("库锁了"));
+
+        assertThatCode(() -> guard.recordFailure("glm-4-flash", "glm-4.7-flash",
+                CrawlException.upstream("上游返回 429", 429, "余额不足"), null)).doesNotThrowAnyException();
+        assertThat(record.getConsecutiveFailures()).isEqualTo(3);
+    }
+
+    /** 留证写库失败不该连累摘勾：那才是真正让引擎不再撞坏型号的动作。 */
+    @Test
+    void quotaModelIsStillUncheckedWhenEvidenceWriteFails() {
+        when(faultRepository.save(any(AiEngineFault.class))).thenThrow(new RuntimeException("库锁了"));
+        when(engineRegistry.dropQuotaModel("glm-4-flash", "glm-4.7-flash")).thenReturn(true);
+
+        guard.recordFailure("glm-4-flash", "glm-4.7-flash",
+                CrawlException.upstream("上游返回 429", 429, "余额不足或无可用资源包,请充值。"), null);
+
+        verify(engineRegistry).dropQuotaModel("glm-4-flash", "glm-4.7-flash");
     }
 }
