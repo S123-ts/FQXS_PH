@@ -41,38 +41,6 @@ H2 文件库落库，无框架单页展示与筛选。
 ./mvnw -B -o test        # 单元测试
 ./mvnw -B -o package     # 打包
 ```
-
-改完 `static/**` 后建议跑一遍真实浏览器断言（记得先重新编译，`spring-boot:run` 从 `target/classes` 伺服）：
-
-```bash
-npm i                           # 一次性：playwright-core + typescript（都不进 Maven 构建）
-npm run typecheck               # 前端静态类型（jsconfig.json + 各模块 // @ts-check）
-node scripts/ui-smoke.mjs       # 主路径冒烟，默认打 http://localhost:8080
-node scripts/ui-block-smoke.mjs # 拉黑与批量：confirm 态、计数、串行次数、撤销（写接口打桩，不写库）
-```
-
-这两个脚本启动浏览器时都带 `--no-proxy-server`：冒烟目标是 localhost 或直连 IP，
-跟随系统代理只会把请求甩给一个可能没在监听的端口，报 `ERR_CONNECTION_RESET`，而同一时刻 `curl` 是通的——
-那种组合极易把「代理挂了」误判成「服务挂了」。
-
-## 数据模型
-
-- `novel_rank`：`(category_code, rank_type, book_id)` 组合唯一；阅读榜/新书榜各自成快照，
-  切榜直接读库、无需重抓；`is_blocked`（拉黑）与 `is_watched`（关注）按 bookId 全行联动。
-- `author_meta`：作者 / 性别 / 评分的长期缓存，主键就是 `book_id`。**跟书走、不跟榜走**——
-  榜单行掉榜被清理时不连带丢掉，书重新上榜直接命中，不再重复请求第三方详情接口。
-- `app_log` / `api_log` / `third_party_log`：程序日志、接口日志、第三方线路尝试日志落库，
-  三张表都带 `book_id`，生命周期跟随书；`/records` 页的数据源就是它们（文件日志仍然保留）。
-- `app_config`：运行时配置——榜单类型、展示分类、拉取频道（全部 / 男频 / 女频）。
-
-数据库结构由 Flyway 迁移管理（`src/main/resources/db/migration`），`ddl-auto=none`，
-应用永不改库结构；已应用的迁移文件不许再改内容（checksum）。
-
-## 设计文档
-
-本仓库只发布可运行的代码与这份 README。开发过程中的设计文档、安全审查报告、界面方案与代码审查快照
-留在作者本地，不随仓库发布。实现细节看 `src/` 下各包的类注释。
-
 ## ⚠️ 免责声明 / DISCLAIMER
 
 **本项目仅供个人学习、技术研究与交流使用，严禁任何形式的商业用途。**
